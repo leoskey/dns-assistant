@@ -67,7 +67,7 @@ docker compose up -d --wait
 | 推送 `vX.Y.Z` 标签 | `X.Y.Z`、`X.Y`、`sha-完整提交号`；不改动 `latest` |
 | main 的 Pull Request | 仅运行验证，不发布 |
 
-每次发布包含两种架构的统一 manifest、源码与提交标签、构建来源信息；工作流实际运行两个架构的配置命令。摘要记录可用于固定镜像的 digest。GHCR 新包首次发布后需在包设置中设为 Public，随后 NAS 可以匿名拉取，详见 [镜像发布维护](docs/image-release.md)。
+每次发布包含两种架构的统一 manifest、源码与提交标签、构建来源信息；工作流实际运行两个架构的配置命令。摘要记录可用于固定镜像的 digest。本项目镜像已公开并通过匿名拉取验证；fork 创建的新包首次发布后需在包设置中设为 Public，详见 [镜像发布维护](docs/image-release.md)。
 
 ## 下载规则与适用范围
 

@@ -32,6 +32,8 @@ git push origin v0.1.8
 
 GitHub 仓库公开不代表新创建的 GHCR 包自动公开。首次发布后，在 [包页面](https://github.com/users/leoskey/packages/container/package/dns-assistant) 打开 Package settings，将 Change package visibility 设为 Public。包公开后可匿名拉取，后续发布沿用包可见性。
 
+本项目已于 2026-10-20 设为 Public，amd64、arm64 与 latest 已通过空凭据拉取验证；使用本项目公开镜像时无需重复设置。
+
 ```sh
 docker buildx imagetools inspect ghcr.io/leoskey/dns-assistant:latest
 docker pull ghcr.io/leoskey/dns-assistant:latest
