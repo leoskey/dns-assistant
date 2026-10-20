@@ -13,6 +13,10 @@
 7. `docker compose config --quiet` 通过后启动，`docker compose ps` 应显示两个 healthy。
 8. IPv6 DNS 接入需另行验证 NAS 监听、Docker 网络、网段及端口；初次验证可先用 IPv4 DNS 地址，服务仍独立处理 AAAA 记录。
 
+默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取统一双架构镜像，Docker 自动匹配 amd64／arm64；无需在 NAS 编译源码。可用 `DNS_ASSISTANT_IMAGE` 固定版本或摘要。源码构建使用 `-f compose.yaml -f compose.build.yaml`，之后的启动／重启等命令保持同一组覆盖文件。
+
+更新时保留原项目名称、服务密钥和两个卷，执行 `docker compose pull`、`docker compose up -d --wait`。已有 fnOS 部署使用 `settings.env` 时保留其 `env_file`，仅替换两个服务的 image，并移除旧的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
+
 ## 接入
 
 浏览器打开 http://NAS_IP:8080，无需登录。管理仅用于受信任局域网，勿转发管理端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；NAS 反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。

@@ -7,4 +7,10 @@ internal/ui/dist
 bin
 data
 .env
+.env.*
+*.env
+*.db
+*.db-shm
+*.db-wal
+docs/nas-deployment.md
 artifacts

@@ -1,8 +1,7 @@
 name: dns-assistant
 services:
   dns:
-    image: dns-assistant:local
-    build: .
+    image: ${DNS_ASSISTANT_IMAGE:-ghcr.io/leoskey/dns-assistant:latest}
     command: ["dns"]
     environment:
       SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
@@ -26,8 +25,7 @@ services:
       timeout: 5s
       retries: 3
   controller:
-    image: dns-assistant:local
-    build: .
+    image: ${DNS_ASSISTANT_IMAGE:-ghcr.io/leoskey/dns-assistant:latest}
     command: ["controller"]
     environment:
       SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}

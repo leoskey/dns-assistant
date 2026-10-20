@@ -1,0 +1,7 @@
+services:
+  dns:
+    image: dns-assistant:local
+    build: .
+  controller:
+    image: dns-assistant:local
+    build: .
