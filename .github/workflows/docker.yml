@@ -101,9 +101,13 @@ jobs:
         run: |
           set -euo pipefail
           image="$IMAGE_NAME@$DIGEST"
-          docker buildx imagetools inspect "$image" --raw | jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | (index("amd64") != null and index("arm64") != null)'
+          manifest="$RUNNER_TEMP/image-manifest.json"
+          docker buildx imagetools inspect "$image" --raw > "$manifest"
+          jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | (index("amd64") != null and index("arm64") != null)' "$manifest"
+          # Classic Docker stores cannot keep two platforms under one index digest.
           for platform in linux/amd64 linux/arm64; do
-            docker run --rm --network none --platform "$platform" "$image" config | jq -e '.rules | length > 0'
+            platform_digest=$(jq -er --arg arch "${platform#linux/}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' "$manifest")
+            docker run --rm --network none --platform "$platform" "$IMAGE_NAME@$platform_digest" config | jq -e '.rules | length > 0'
           done
           {
             echo '### Published Docker image'
