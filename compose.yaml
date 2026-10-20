@@ -1,0 +1,55 @@
+name: dns-assistant
+services:
+  dns:
+    image: dns-assistant:local
+    build: .
+    command: ["dns"]
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
+      NAS_IP: ${NAS_IP:?请先设置NAS固定局域网IP}
+      DATA_DIR: /data
+      MANAGER_INTERNAL_URL: http://controller:8081
+    ports:
+      - "${NAS_IP:?请先设置NAS固定局域网IP}:53:5353/udp"
+      - "${NAS_IP:?请先设置NAS固定局域网IP}:53:5353/tcp"
+    volumes:
+      - dns-state:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    stop_grace_period: 10s
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD", "dns-assistant", "health", "dns"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  controller:
+    image: dns-assistant:local
+    build: .
+    command: ["controller"]
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
+      NAS_IP: ${NAS_IP:?请先设置NAS固定局域网IP}
+      DATA_DIR: /data
+      DNS_CONTROL_URL: http://dns:9090
+      ADMIN_HOSTS: ${ADMIN_HOSTS:-}
+    ports:
+      - "${NAS_IP:?请先设置NAS固定局域网IP}:8080:8080"
+    volumes:
+      - controller-state:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    stop_grace_period: 10s
+    mem_limit: 320m
+    healthcheck:
+      test: ["CMD", "dns-assistant", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  dns-state:
+  controller-state:

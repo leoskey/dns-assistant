@@ -1,0 +1,1 @@
+{"name":"dns-assistant-workspace","private":true,"scripts":{"build":"npm --prefix web run build","test:web":"npm --prefix web run test","dev":"npm --prefix web run dev"}}

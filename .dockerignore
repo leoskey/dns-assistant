@@ -1,0 +1,10 @@
+.tools
+.cache
+.git
+node_modules
+web/node_modules
+internal/ui/dist
+bin
+data
+.env
+artifacts
