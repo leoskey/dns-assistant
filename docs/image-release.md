@@ -43,6 +43,8 @@ docker pull ghcr.io/leoskey/dns-assistant:latest
 
 如果 NAS 无法访问 ghcr.io，检查 NAS 的 DNS、网络出口与 registry 连接；不要把令牌或服务密钥放入公开 Compose。已拉取镜像不受后续 registry 暂时不可达影响。
 
+直连拉取过慢时，可在能访问 GHCR 的电脑按目标 NAS 架构拉取指定提交标签，使用 `docker save` 导出，再通过 NAS 镜像导入功能载入。Compose 继续使用同一 GHCR 提交标签，保留原密钥与数据卷。记录来源 digest、目标架构及导出文件校验值；导入成功不等于 NAS 直连 registry 已通过。
+
 ## NAS 升级与源码构建
 
 按 [部署说明](deployment.md) 操作。默认 `compose.yaml` 拉取 `DNS_ASSISTANT_IMAGE`；`compose.build.yaml` 显式覆盖两个服务为本地构建。两者共享端口、密钥与卷定义。
