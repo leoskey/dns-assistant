@@ -15,6 +15,8 @@
 
 默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取统一双架构镜像，Docker 自动匹配 amd64／arm64；无需在 NAS 编译源码。可用 `DNS_ASSISTANT_IMAGE` 固定版本或摘要。源码构建使用 `-f compose.yaml -f compose.build.yaml`，之后的启动／重启等命令保持同一组覆盖文件。
 
+中国大陆访问 GHCR 缓慢时，可将 DNS_ASSISTANT_IMAGE 设为 `ghcr.nju.edu.cn/leoskey/dns-assistant:latest`，再直接 pull 与 up。现有 fnOS NAS 已验证该 GHCR 缓存路径，具体操作、摘要核对与回退方式见 [NAS 拉取加速与升级](image-release.md#nas-拉取加速与升级)。
+
 更新时保留原项目名称、服务密钥和两个卷，执行 `docker compose pull`、`docker compose up -d --wait`。已有 fnOS 部署使用 `settings.env` 时保留其 `env_file`，仅替换两个服务的 image，并移除旧的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
 
 ## 接入

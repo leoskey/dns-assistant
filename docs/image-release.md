@@ -41,9 +41,46 @@ docker pull ghcr.io/leoskey/dns-assistant:latest
 
 检查平台列表包含 `linux/amd64` 与 `linux/arm64`；构建来源证明可能增加 `unknown/unknown` 条目，不属于额外运行架构。无凭据拉取成功才算匿名部署验证通过。
 
-如果 NAS 无法访问 ghcr.io，检查 NAS 的 DNS、网络出口与 registry 连接；不要把令牌或服务密钥放入公开 Compose。已拉取镜像不受后续 registry 暂时不可达影响。
+## NAS 拉取加速与升级
 
-直连拉取过慢时，可在能访问 GHCR 的电脑按目标 NAS 架构拉取指定提交标签，使用 `docker save` 导出，再通过 NAS 镜像导入功能载入。Compose 继续使用同一 GHCR 提交标签，保留原密钥与数据卷。记录来源 digest、目标架构及导出文件校验值；导入成功不等于 NAS 直连 registry 已通过。
+中国大陆家宽访问 GHCR 缓慢时，可使用 [南京大学镜像站](https://mirror.nju.edu.cn/) 提供的 GHCR 缓存。发布仍在 ghcr.io；拉取路径改为 `ghcr.nju.edu.cn`，其后仓库路径和标签保持一致。
+
+在 `.env` 设置：
+
+```dotenv
+DNS_ASSISTANT_IMAGE=ghcr.nju.edu.cn/leoskey/dns-assistant:latest
+```
+
+然后在 NAS 上直接执行：
+
+```sh
+docker compose pull
+docker compose up -d --wait
+```
+
+已部署的 fnOS 项目如果使用 `settings.env` 和直接写在 YAML 内的镜像地址，将两个服务设为：
+
+```yaml
+image: ghcr.nju.edu.cn/leoskey/dns-assistant:latest
+pull_policy: always
+```
+
+在 Docker → 本地镜像 → 添加镜像 → 从 URL 添加中预先拉取该地址，等待完成；随后在 Compose → dns-assistant 中停止本项目，再从“更多 → 构建”重建。pull_policy 确保手动构建时检查镜像更新，构建会恢复两个服务。保留原 settings.env、项目名及两个数据卷。停止本项目至恢复期间会有短暂 DNS 中断；提前完成镜像下载可缩短这一窗口。
+
+fnOS 1.2.0505 的“从 URL 添加”对 `@sha256:...` 输入会错误拆分为仓库与标签；该对话框使用普通版本／提交标签。标准 Docker CLI 与 Compose 可使用完整 digest。需要固定版本或回滚时，保持仓库路径并使用已发布的 `sha-完整提交号`、版本标签，或在 CLI／Compose 使用经核对的 digest。
+
+维护者可用下列命令分别检查上游与缓存的 digest、平台列表；目标发布的两个 digest 应一致。已验证的摘要及测试范围见 [验证记录](validation.md)。
+
+```sh
+docker buildx imagetools inspect ghcr.io/leoskey/dns-assistant:latest
+docker buildx imagetools inspect ghcr.nju.edu.cn/leoskey/dns-assistant:latest
+```
+
+2026-10-20，现有 amd64 fnOS NAS 在 28 秒内完成此前未缓存的约 22.91 MB 测试镜像下载；该镜像未运行并已清理。本项目镜像拉取及两个容器重建在 14 秒内完成，已有层命中 NAS 缓存。两项检查分别证明新层下载路径和本项目升级流程，不将缓存命中速度当作完整冷下载速度。
+
+Docker Hub 的 `registry-mirrors` 不会重定向 GHCR，因此本方案按项目使用明确的 GHCR 缓存地址。需要使用 HTTP 代理时，应配置 Docker daemon 的代理，而非仅给容器添加 HTTP_PROXY；本次未修改 NAS 的全局 Docker 代理或重启 Docker 服务。依据：[Docker daemon 代理](https://docs.docker.com/engine/daemon/proxy/)、[Docker Hub 缓存范围](https://docs.docker.com/docker-hub/image-library/mirror/)。
+
+如果所选拉取入口暂时不可用，已运行容器继续使用本地镜像。可在维护时切回 ghcr.io 对应版本，或从可连通 GHCR 的电脑导出目标架构镜像后导入；记录来源 digest 和文件校验值，继续保留密钥与数据卷。
 
 ## NAS 升级与源码构建
 

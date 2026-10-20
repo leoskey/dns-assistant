@@ -23,6 +23,8 @@
 
 预构建镜像为 `ghcr.io/leoskey/dns-assistant:latest`，同时支持 `linux/amd64` 和 `linux/arm64`，Docker 自动选择 NAS 对应架构。默认 Compose 直接拉取镜像。
 
+中国大陆访问 GHCR 缓慢时，可在 `.env` 将 `DNS_ASSISTANT_IMAGE` 改为 `ghcr.nju.edu.cn/leoskey/dns-assistant:latest`，通过南京大学 GHCR 缓存拉取相同发布内容。本项目已验证该路径的 NAS 冷下载与实际重建，详见 [NAS 拉取加速与升级](docs/image-release.md#nas-拉取加速与升级)。
+
 ```sh
 git clone https://github.com/leoskey/dns-assistant.git
 cd dns-assistant
