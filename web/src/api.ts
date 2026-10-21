@@ -61,6 +61,8 @@ export type Query = {
   optimized: boolean;
 };
 export type Status = {
+  app_version: string;
+  app_revision: string;
   enabled: boolean;
   selections: Selection[];
   tasks: Task[];

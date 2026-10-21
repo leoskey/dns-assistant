@@ -22,6 +22,8 @@
 | POST /api/v1/restore | `{"format":2,"config":{...}}`（兼容 format 1），完整校验后恢复 |
 | GET /api/v1/events | SSE update 事件，收到后重新读取完整状态 |
 
+状态中的 `app_version` 为程序语义版本（如 `0.1.0`），`app_revision` 为镜像构建注入的源码提交号，未注入时为 `unknown`。原有数值字段 `version`／`applied_version` 仍表示 DNS 策略版本；`feed.version` 表示订阅内容版本，均不用于程序版本展示。
+
 错误返回 JSON 的 `error` 字段。无效格式／配置为 400，来源不允许为 403，任务重复／未启用为 409，DNS 核心不可达的接入检查为 502。未知字段、重复 JSON 值和超过 1 MiB 的输入拒绝处理。
 
 状态接口的 `dns_address` 来自部署环境 `NAS_IP`，仅返回有效的非环回单播 IPv4；缺失或无效时返回空字符串。该地址用于主机手动 DNS 指引，不从请求 Host、浏览器域名或容器网卡推断，也不表示主机已实际接入。默认 Compose 发布 TCP／UDP 53；管理员更改端口后须自行确认主机支持。

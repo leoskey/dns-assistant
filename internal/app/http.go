@@ -345,7 +345,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	if ip := net.ParseIP(strings.TrimSpace(os.Getenv("NAS_IP"))); ip != nil && ip.To4() != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() {
 		dnsAddress = ip.String()
 	}
-	jsonOut(w, 200, map[string]any{"enabled": c.Enabled, "selections": selections, "tasks": tasks, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "feed": feed, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "last_tests": lastTests, "interval_seconds": c.IntervalSeconds})
+	jsonOut(w, 200, map[string]any{"app_version": Version(), "app_revision": Revision, "enabled": c.Enabled, "selections": selections, "tasks": tasks, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "feed": feed, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "last_tests": lastTests, "interval_seconds": c.IntervalSeconds})
 }
 
 func parsePage(r *http.Request) (PageRequest, error) {

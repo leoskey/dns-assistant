@@ -20,6 +20,8 @@ jobs:
     name: Test application
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,6 +40,27 @@ jobs:
           npm ci --prefix web --no-audit --no-fund
           npm run build --prefix web
           npm test --prefix web
+      - name: Check release version
+        id: version
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const version = readFileSync('internal/app/VERSION', 'utf8').trim();
+          assert.match(version, /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/);
+          assert(readFileSync('README.md', 'utf8').includes(`当前源码版本：**v${version}**`), 'README version differs');
+          for (const file of ['web/package.json', 'web/package-lock.json']) {
+            const data = JSON.parse(readFileSync(file, 'utf8'));
+            assert.equal(data.version, version, `${file} version differs`);
+            if (data.packages) assert.equal(data.packages[''].version, version);
+          }
+          if (process.env.RELEASE_REF.startsWith('refs/tags/')) {
+            assert.equal(process.env.RELEASE_REF, `refs/tags/v${version}`, 'tag does not match the application version');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+          JS
       - name: Test Go with race detector
         run: go test -race ./...
       - name: Vet Go
@@ -82,6 +105,8 @@ jobs:
             type=sha,format=long
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.version=${{ needs.test.outputs.version }}
       - name: Build and publish multi-platform image
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -95,9 +120,13 @@ jobs:
           cache-from: type=gha,scope=dns-assistant
           cache-to: type=gha,scope=dns-assistant,mode=max
           provenance: mode=min
+          build-args: |
+            VCS_REF=${{ github.sha }}
       - name: Verify manifest and run both architectures
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+          APP_VERSION: ${{ needs.test.outputs.version }}
+          SOURCE_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
           image="$IMAGE_NAME@$DIGEST"
@@ -108,11 +137,13 @@ jobs:
           for platform in linux/amd64 linux/arm64; do
             platform_digest=$(jq -er --arg arch "${platform#linux/}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' "$manifest")
             docker run --rm --network none --platform "$platform" "$IMAGE_NAME@$platform_digest" config | jq -e '.rules | length > 0'
+            docker run --rm --network none --platform "$platform" "$IMAGE_NAME@$platform_digest" version | grep -Fx "DNS Assistant v$APP_VERSION ($SOURCE_REVISION)"
           done
           {
             echo '### Published Docker image'
             echo "Image: \`$IMAGE_NAME\`"
             echo "Digest: \`$DIGEST\`"
+            echo "Version: \`$APP_VERSION\`"
             echo 'Platforms: linux/amd64, linux/arm64'
-            echo 'Both platform binaries passed the config command smoke test.'
+            echo 'Both platform binaries passed the config and version command smoke tests.'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -24,10 +24,14 @@ func env(k, def string) string {
 }
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "用法: dns-assistant dns|controller|health|keygen|config")
+		fmt.Fprintln(os.Stderr, "用法: dns-assistant dns|controller|health|keygen|config|version")
 		os.Exit(2)
 	}
 	command := os.Args[1]
+	if command == "version" {
+		fmt.Printf("DNS Assistant v%s (%s)\n", app.Version(), app.Revision)
+		return
+	}
 	if command == "keygen" {
 		fmt.Println(app.NewKey())
 		return

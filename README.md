@@ -2,6 +2,8 @@
 
 [![Docker images](https://github.com/leoskey/dns-assistant/actions/workflows/docker.yml/badge.svg)](https://github.com/leoskey/dns-assistant/actions/workflows/docker.yml)
 
+当前源码版本：**v0.1.0**。管理页面“设置”中可查看正在运行的版本，命令行使用 `dns-assistant version`。
+
 部署在 NAS 上的家庭游戏主机 DNS 优选工具。针对配置的 Xbox、PlayStation 和 Nintendo Switch 域名，在 NAS 上测试候选公网 IPv4 的持续下载速度，并将合格节点用于后续 DNS 应答。
 
 提供中文管理页面，局域网直接访问，无需登录，也不需要安装 AdGuard Home。项目优化的是已配置域名的节点选择；实际游戏下载效果取决于规则、样本和家庭网络。

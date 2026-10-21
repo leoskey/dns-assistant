@@ -205,6 +205,14 @@ async function poll(fn, message, timeout = 15000) {
     await page.getByRole("link", { name: "设置", exact: true }).click();
     const save = page.getByRole("button", { name: "保存设置", exact: true });
     await save.waitFor();
+    const appVersion = (await read("status")).app_version;
+    assert(appVersion, "application version missing from status");
+    assert(
+      (await page.getByTestId("app-version").innerText()).includes(
+        `当前版本 v${appVersion}`,
+      ),
+      "settings must display the running backend version",
+    );
     assert(await save.isDisabled());
     assert.equal(await page.getByText(/每日预算|单节点读取上限/).count(), 0);
     const windowInput = page.getByLabel("单节点测速窗口（秒）", {
@@ -325,6 +333,7 @@ async function poll(fn, message, timeout = 15000) {
         "actual DNS check",
         "record pagination and server filter",
         "daily summary",
+        "settings shows the running backend application version",
         "real validation failure and save retry",
         "bad feed preserves last good / valid feed applies",
         "simple rule add and advanced field preservation",

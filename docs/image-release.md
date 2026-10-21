@@ -2,7 +2,7 @@
 
 ## 当前 NAS 离线发布
 
-2026-10-20 的选优重构已使用 `dns-assistant:2026.10.20-optimization-r2` 离线镜像部署到现有 amd64 fnOS NAS。该版本尚未提交到 GitHub 或发布到 GHCR，以下 GHCR latest／版本标签流程不会自动提供本轮改动。当前部署的两个服务均设置 pull_policy: never，使用已导入的本地镜像；不要直接改回旧 latest。
+选优更新已于 2026-10-21 推送到 GitHub 并通过双架构 GHCR 发布检查。现有 amd64 fnOS NAS 仍运行 `dns-assistant:2026.10.20-optimization-r2` 离线镜像，两个服务设置 pull_policy: never。公开镜像发布不会自动更新这台 NAS；升级时应选择验证过的版本，保留密钥和数据卷。
 
 本轮离线镜像包 SHA256 为 `fc77a889e10c6d670ede528fbe10de2994c058123fde86304007bafb14ff8d68`，Docker 导出镜像 ID 为 `sha256:78764719f76186f9622d7cdbc0f71f589ecb3250be7a7533e7da3f6177c910b7`。完整卷备份与现场检查见 [验证记录](validation.md)。后续公开发布时，先通过以下 CI 与镜像检查，再切换 NAS 到对应固定发布版本。
 
@@ -23,6 +23,10 @@ main 的新运行会取消同一分支的旧运行，版本标签的发布不被
 
 ## 标签与版本
 
+程序版本保存在 `internal/app/VERSION`，使用三段数字（例如 `0.1.0`）：功能兼容修复递增补丁号，新增兼容功能递增次版本，不兼容变更递增主版本。规则表版本和数据库 schema 版本独立维护。
+
+升级程序版本时，同步执行 `npm --prefix web version 新版本号 --no-git-tag-version` 更新前端包与锁文件，并修改 README 的当前源码版本。CI 检查它们与 VERSION 一致，并拒绝与程序版本不一致的 Git 标签。版本在管理页“设置”、`GET /api/v1/status` 的 `app_version` 和 `dns-assistant version` 中可查；发布镜像还注入源码提交号，并将相同版本写入 OCI 的 `org.opencontainers.image.version` 标签。
+
 - main：`latest` 和 `sha-完整提交号`。latest 跟随经过测试的 main。
 - `vX.Y.Z`：`X.Y.Z`、`X.Y` 和提交号标签；版本发布不移动 latest。次版本标签会指向该系列最近一次发布。
 - 手动运行：按所选分支／标签生成标签；仅 main 生成 latest。
@@ -30,11 +34,13 @@ main 的新运行会取消同一分支的旧运行，版本标签的发布不被
 发布版本示例：
 
 ```sh
-git tag v0.1.8
-git push origin v0.1.8
+git tag -a v0.1.0 -m "DNS Assistant v0.1.0"
+git push origin v0.1.0
 ```
 
 版本与提交号标签用于定位发布。需要保证内容固定时使用 Actions 摘要中的完整 digest；标签可以被有权限的维护者重新发布。
+
+使用首个版本镜像时，设置 `DNS_ASSISTANT_IMAGE=ghcr.io/leoskey/dns-assistant:0.1.0`。版本发布仍需通过两种架构的配置与版本命令检查；已发布版本出现修复时递增版本号，不覆盖旧版本标签。
 
 ## GHCR 首次公开
 

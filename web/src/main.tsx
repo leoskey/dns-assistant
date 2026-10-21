@@ -497,6 +497,13 @@ function Settings() {
         title="设置"
         sub="设置低频测试与下载规则。保存前会检查完整配置。"
       />
+      {status?.app_version && (
+        <p className="muted" data-testid="app-version">
+          当前版本 v{status.app_version}
+          {status.app_revision !== "unknown" &&
+            ` · ${status.app_revision.slice(0, 7)}`}
+        </p>
+      )}
       <form id="settings-form" onSubmit={save}>
         <fieldset className="settings-fields" disabled={busy || syncing}>
           <section className="settings-section">

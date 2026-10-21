@@ -14,7 +14,8 @@ COPY internal ./internal
 COPY --from=web /src/internal/ui/dist ./internal/ui/dist
 ARG TARGETOS=linux
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/dns-assistant ./cmd/dns-assistant
+ARG VCS_REF=unknown
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X dns-assistant/internal/app.Revision=$VCS_REF" -o /out/dns-assistant ./cmd/dns-assistant
 
 FROM build AS test
 RUN go test -race ./...

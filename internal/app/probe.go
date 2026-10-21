@@ -62,7 +62,7 @@ func (p Prober) Probe(ctx context.Context, r Rule, ip string, c Config, kind str
 		req.Header.Set("Range", "bytes=0-")
 	}
 	req.Header.Set("Accept-Encoding", "identity")
-	agent := "DNSAssistant/1.0"
+	agent := "DNSAssistant/" + Version()
 	if r.Platform == "Switch" {
 		agent = "DNSAssistant/Nintendo NX"
 	}
