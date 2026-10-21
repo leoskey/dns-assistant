@@ -485,55 +485,6 @@ nav a svg {
   width: 14px;
   height: 14px;
 }
-.budget {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  margin-top: 20px;
-  padding: 20px 24px;
-}
-.budget h3 {
-  font-size: 14px;
-}
-.budget p {
-  font-size: 12px;
-  max-width: 500px;
-}
-.budget-number {
-  min-width: 200px;
-  font-weight: 600;
-}
-.budget-number span {
-  color: var(--muted-foreground);
-  font-weight: 400;
-  font-size: 12px;
-}
-progress {
-  appearance: none;
-  display: block;
-  width: 100%;
-  height: 6px;
-  margin-top: 10px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--muted);
-  overflow: hidden;
-}
-progress::-webkit-progress-bar {
-  background: var(--muted);
-  border-radius: 9px;
-}
-progress::-webkit-progress-value {
-  background: var(--primary);
-  border-radius: 9px;
-}
-progress::-moz-progress-bar {
-  background: var(--primary);
-  border-radius: 9px;
-}
 .footnote,
 .muted {
   color: var(--muted-foreground);
@@ -589,33 +540,6 @@ progress::-moz-progress-bar {
 }
 .rule-heading p {
   font-size: 12px;
-}
-.selection-row {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 16px 0;
-  border-top: 1px solid var(--border);
-}
-.selection-row > div {
-  flex: 1;
-  min-width: 0;
-}
-.selection-row strong {
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.selection-row p {
-  font-size: 12px;
-}
-.family {
-  font-size: 12px;
-  width: 40px;
-  color: var(--muted-foreground);
-}
-.speed {
-  font-size: 13px;
-  white-space: nowrap;
 }
 .pin-form {
   display: flex;
@@ -773,11 +697,166 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: 18px;
-  margin-top: 24px;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
 }
 .save-bar span {
   color: var(--muted-foreground);
   font-size: 12px;
+}
+.settings-actions {
+  display: none;
+  grid-area: settings-actions;
+  min-width: 0;
+  padding: 16px 40px max(16px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+.settings-actions:not(:empty) {
+  display: flex;
+  align-items: center;
+}
+.shell:has(.settings-actions:not(:empty)) {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-areas: "navigation workspace" "status workspace" "status settings-actions";
+}
+.save-bar > div {
+  min-width: 0;
+}
+.save-bar .error {
+  margin: 4px 0 0;
+  max-height: 44px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.save-bar button {
+  flex-shrink: 0;
+}
+.settings-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.record-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin: 16px 0 8px;
+  font-size: 12px;
+}
+.record-pagination > span {
+  margin-right: auto;
+}
+.record-pagination label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.record-pagination select {
+  min-height: 32px;
+}
+.record-retention {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin: 0 0 20px;
+}
+.download-rules {
+  display: grid;
+  gap: 10px;
+}
+.download-rule {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.download-rule-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.download-rule-heading > div {
+  min-width: 0;
+  margin-right: auto;
+}
+.download-rule-heading strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.download-rule-heading small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.download-rule-heading .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.download-rule-heading button {
+  flex-shrink: 0;
+}
+.rule-sample {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 10px 0 0;
+}
+.rule-simple-editor {
+  padding-top: 16px;
+}
+.rule-simple-editor > .muted {
+  margin: -8px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.rule-simple-editor > button {
+  justify-self: start;
+}
+.settings-section:has(.download-rules) {
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+@media (max-width: 1100px) {
+  .settings-actions {
+    padding-left: 26px;
+    padding-right: 26px;
+  }
+}
+@media (max-width: 760px) {
+  .shell:has(.settings-actions:not(:empty)) {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "navigation" "workspace" "settings-actions" "status";
+  }
+  .settings-actions {
+    padding: 10px max(16px, env(safe-area-inset-right)) 10px
+      max(16px, env(safe-area-inset-left));
+  }
+  .save-bar {
+    gap: 10px;
+  }
+  .save-bar > div {
+    margin-right: auto;
+  }
+  .save-bar span {
+    font-size: 11px;
+  }
+  .record-pagination .row-actions {
+    flex-wrap: wrap;
+  }
+  .download-rule {
+    padding: 12px;
+  }
 }
 .backup {
   display: flex;
@@ -835,24 +914,7 @@ tbody tr:hover {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.rule-editors {
-  display: grid;
-  gap: 18px;
-}
-.rule-editors fieldset {
-  min-width: 0;
-  display: grid;
-  gap: 15px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.rule-editors legend {
-  padding: 0 6px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.rule-editors .checkbox {
+.checkbox {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -862,13 +924,6 @@ tbody tr:hover {
   min-height: 15px;
   height: 15px;
   accent-color: var(--primary);
-}
-.rule-editors details label {
-  margin-top: 14px;
-}
-.rule-editors button.quiet {
-  color: var(--red);
-  justify-self: start;
 }
 details summary {
   cursor: pointer;
@@ -917,11 +972,6 @@ details summary {
   }
   .platform-name {
     gap: 7px;
-  }
-  .budget {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 12px;
   }
   .settings-section {
     gap: 24px;
@@ -1061,12 +1111,6 @@ details summary {
     border: 0;
     font-size: 11px;
   }
-  .budget {
-    padding: 18px;
-  }
-  .budget-number {
-    min-width: 0;
-  }
   .tabs {
     display: flex;
   }
@@ -1084,25 +1128,6 @@ details summary {
   }
   .rule-heading h2 {
     font-size: 14px;
-  }
-  .selection-row {
-    display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 9px 12px;
-  }
-  .selection-row strong {
-    font-size: 12px;
-  }
-  .selection-row .status-pill {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-    padding: 1px 5px;
-  }
-  .speed {
-    font-size: 12px;
-    grid-column: 2;
-    grid-row: 2;
   }
   .pin-form input {
     min-width: 0;
@@ -1487,16 +1512,8 @@ details summary {
 .node-detail {
   min-width: 0;
 }
-.detail-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  margin-bottom: 14px;
-}
 .platform-table {
-  min-width: 900px;
+  min-width: 1000px;
 }
 .platform-table td:first-child {
   min-width: 200px;
@@ -1505,10 +1522,10 @@ details summary {
   min-width: 70px;
 }
 .platform-table td:nth-child(3) {
-  min-width: 150px;
+  min-width: 110px;
 }
-.platform-table td:nth-child(5) {
-  min-width: 160px;
+.platform-table td:nth-child(4) {
+  min-width: 240px;
 }
 .platform-tabs {
   justify-content: space-between;
@@ -1519,15 +1536,6 @@ details summary {
 .platform-tabs .tabs button {
   min-width: 85px;
 }
-.address-entry {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 46px;
-}
-.address-entry small {
-  margin-top: 3px;
-}
 @media (max-width: 760px) {
   .platform-tabs .tabs {
     width: 100%;
@@ -1536,37 +1544,8 @@ details summary {
     min-width: 0;
   }
 }
-.rules-table {
-  min-width: 610px;
-}
-.rules-table td:first-child {
-  min-width: 170px;
-}
-.rules-table .sample-cell {
-  max-width: 250px;
-}
-.sample-cell > span {
-  display: block;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rules-table input[type="checkbox"] {
-  width: 16px;
-  min-height: 16px;
-  height: 16px;
-  accent-color: var(--primary);
-}
 .destructive {
   color: var(--red);
-}
-.settings-section:has(.rules-table) {
-  grid-template-columns: 1fr;
-  gap: 20px;
-}
-.settings-section:has(.rules-table) > div:first-child p {
-  max-width: 850px;
 }
 @media (max-width: 760px) {
   .list-toolbar {

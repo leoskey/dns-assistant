@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -28,7 +27,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 1 {
+	if schema > 3 {
 		db.Close()
 		return nil, fmt.Errorf("数据库版本 %d 高于本程序支持版本", schema)
 	}
@@ -36,9 +35,14 @@ func OpenStore(dir string) (*Store, error) {
 	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
  CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS results(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,payload TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS budgets(day TEXT PRIMARY KEY,used INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,message TEXT NOT NULL);
- PRAGMA user_version=1;`)
+ CREATE TABLE IF NOT EXISTS queries(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,payload TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS results_time ON results(time);
+ CREATE INDEX IF NOT EXISTS events_time ON events(time);
+ CREATE INDEX IF NOT EXISTS queries_time ON queries(time);
+ CREATE TABLE IF NOT EXISTS daily(day TEXT NOT NULL,domain TEXT NOT NULL,tests INTEGER NOT NULL DEFAULT 0,failures INTEGER NOT NULL DEFAULT 0,health_checks INTEGER NOT NULL DEFAULT 0,health_failures INTEGER NOT NULL DEFAULT 0,speed_sum REAL NOT NULL DEFAULT 0,speed_count INTEGER NOT NULL DEFAULT 0,peak_mbps REAL NOT NULL DEFAULT 0,bytes INTEGER NOT NULL DEFAULT 0,switches INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,domain));
+ DROP TABLE IF EXISTS budgets;
+ PRAGMA user_version=3;`)
 	if e != nil {
 		db.Close()
 		return nil, e
@@ -67,9 +71,20 @@ func (s *Store) AddResult(r Result) error {
 	if e != nil {
 		return e
 	}
-	_, e = s.db.Exec("INSERT INTO results(time,payload) VALUES(?,?)", r.Time.Format(time.RFC3339Nano), string(b))
-	return e
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = appendLogTx(tx, "results", "payload", r.Time, string(b), resultLimit); err != nil {
+		return err
+	}
+	if err = addDailyResult(tx, r); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
+
 func (s *Store) History(limit int) ([]Result, error) {
 	rows, e := s.db.Query("SELECT id,payload FROM results ORDER BY id DESC LIMIT ?", limit)
 	if e != nil {
@@ -94,87 +109,55 @@ func (s *Store) History(limit int) ([]Result, error) {
 }
 
 type Event struct {
+	ID      int64  `json:"id"`
 	Time    string `json:"time"`
 	Message string `json:"message"`
 }
 
 func (s *Store) Event(msg string) error {
-	_, e := s.db.Exec("INSERT INTO events(time,message) VALUES(?,?)", time.Now().UTC().Format(time.RFC3339), msg)
-	return e
-}
-func (s *Store) Events() ([]Event, error) {
-	rows, e := s.db.Query("SELECT time,message FROM events ORDER BY id DESC LIMIT 100")
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	out := []Event{}
-	for rows.Next() {
-		var v Event
-		if e = rows.Scan(&v.Time, &v.Message); e != nil {
-			return nil, e
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}
-func (s *Store) Used(day string) (int64, error) {
-	var n int64
-	e := s.db.QueryRow("SELECT used FROM budgets WHERE day=?", day).Scan(&n)
-	if errors.Is(e, sql.ErrNoRows) {
-		e = nil
-	}
-	return n, e
-}
-
-// Reservations survive a crash; unconsumed bytes are released only on a clean settlement.
-func (s *Store) Reserve(day string, n, limit int64) (bool, error) {
-	tx, e := s.db.BeginTx(context.Background(), nil)
-	if e != nil {
-		return false, e
-	}
-	defer tx.Rollback()
-	if _, e = tx.Exec("INSERT OR IGNORE INTO budgets(day,used) VALUES(?,0)", day); e != nil {
-		return false, e
-	}
-	r, e := tx.Exec("UPDATE budgets SET used=used+? WHERE day=? AND used+?<=?", n, day, n, limit)
-	if e != nil {
-		return false, e
-	}
-	rows, e := r.RowsAffected()
-	if e != nil {
-		return false, e
-	}
-	if rows == 0 {
-		return false, nil
-	}
-	return true, tx.Commit()
-}
-func (s *Store) Settle(day string, reserved, actual int64) error {
-	if actual > reserved {
-		actual = reserved
-	}
-	_, e := s.db.Exec("UPDATE budgets SET used=MAX(0,used-?) WHERE day=?", reserved-actual, day)
-	return e
+	return s.appendLog("events", "message", time.Now().UTC(), msg, eventLimit)
 }
 func (s *Store) Prune() error {
-	_, e := s.db.Exec("DELETE FROM results WHERE id NOT IN (SELECT id FROM results ORDER BY id DESC LIMIT 5000); DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 500); DELETE FROM budgets WHERE day < date('now','-90 days')")
-	return e
+	return s.pruneAt(time.Now().UTC())
 }
 
-func (s *Store) SaveState(c Config, selections map[string]Selection, version uint64) error {
+func (s *Store) SaveState(c Config, selections map[string]Selection, version uint64, extra ...map[string]any) error {
 	tx, e := s.db.Begin()
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	for k, v := range map[string]any{"config": c, "selections": selections, "version": version} {
-		b, e := json.Marshal(v)
-		if e != nil {
-			return e
+	values := map[string]any{"config": c, "selections": selections, "version": version}
+	for _, items := range extra {
+		for k, v := range items {
+			values[k] = v
 		}
-		if _, e = tx.Exec("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", k, string(b)); e != nil {
-			return e
+	}
+	var oldJSON string
+	old := map[string]Selection{}
+	if err := tx.QueryRow("SELECT value FROM metadata WHERE key='selections'").Scan(&oldJSON); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if oldJSON != "" {
+		if err := json.Unmarshal([]byte(oldJSON), &old); err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC()
+	for k, v := range selections {
+		if v.Family == "A" && v.IP != "" && v.ValidUntil.After(now) && (old[k].IP != v.IP || !old[k].ValidUntil.After(now)) {
+			if _, err := tx.Exec("INSERT INTO daily(day,domain,switches) VALUES(?,?,1) ON CONFLICT(day,domain) DO UPDATE SET switches=switches+1", now.Format("2006-01-02"), v.Domain); err != nil {
+				return err
+			}
+		}
+	}
+	for k, v := range values {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", k, string(b)); err != nil {
+			return err
 		}
 	}
 	return tx.Commit()

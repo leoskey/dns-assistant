@@ -1,0 +1,70 @@
+{
+  "version": "2026-10-20",
+  "rules": [
+    {
+      "id": "xbox-global",
+      "platform": "Xbox",
+      "url": "http://xvcf1.xboxlive.com/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "playstation",
+      "platform": "PlayStation",
+      "url": "http://gst.prod.dl.playstation.net/networktest/get_192m"
+    },
+    {
+      "id": "switch",
+      "platform": "Switch",
+      "url": "http://ctest-dl-lp1.cdn.nintendo.net/30m"
+    },
+    {
+      "id": "xbox-content-1",
+      "platform": "Xbox",
+      "url": "http://assets1.xboxlive.com/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-2",
+      "platform": "Xbox",
+      "url": "http://assets2.xboxlive.com/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-3",
+      "platform": "Xbox",
+      "url": "http://xvcf2.xboxlive.com/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-4",
+      "platform": "Xbox",
+      "url": "http://d1.xboxlive.com/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-5",
+      "platform": "Xbox",
+      "url": "http://d2.xboxlive.com/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-6",
+      "platform": "Xbox",
+      "url": "http://assets1.xboxlive.cn/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-7",
+      "platform": "Xbox",
+      "url": "http://assets2.xboxlive.cn/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-8",
+      "platform": "Xbox",
+      "url": "http://d1.xboxlive.cn/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "xbox-content-9",
+      "platform": "Xbox",
+      "url": "http://d2.xboxlive.cn/Z/routing/extraextralarge.txt"
+    },
+    {
+      "id": "ps-games",
+      "platform": "PlayStation",
+      "url": "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA03962_00/4/f_526a2fab32d369a8ca6298b59686bf823fa9edfe95acb85bc140c27f810842ce/f/UP0102-CUSA03962_00-BH70000000000001_0.pkg"
+    }
+  ]
+}

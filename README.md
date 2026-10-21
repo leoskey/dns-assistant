@@ -8,13 +8,15 @@
 
 ## 已实现
 
-- UDP／TCP DNS、上游缓存、A／AAAA 独立策略、精确域名匹配、超时回退。
-- 启动与运行期间自动探测；HTTP 内容检查、吞吐采样、近期成功率与中位数排名、切换迟滞、备用节点、固定节点验证。
-- 持久化每日预算，保留健康检查额度；取消、时间与字节上限。
+- UDP／TCP DNS、上游缓存、公网 IPv4 优选、目标 AAAA NODATA、精确域名匹配、超时回退。
+- 启动与运行期间自动探测；HTTP 内容检查、吞吐采样、本轮持续下载速度排名、速度接近时保留节点、固定节点验证。
+- 按时长测速，不限字节、不设每日预算；默认每日复测、每 30 分钟检查当前节点，故障先恢复默认再完整复测，调度持久化。
+- HTTPS 规则表定时同步、完整校验、失败保留上次可用配置；每日速度、失败与切换汇总保留 90 天。
 - 双容器隔离，版本化策略与独立快照；管理停止时 DNS 继续服务，策略过期恢复普通解析。
 - React 总览、平台、接入检查、历史、可视化设置与规则维护、配置备份恢复及 SSE。
 - 首页显示可复制的 NAS DNS 地址及 PS5／PS4、Xbox、Switch 设置指引；页面与操作提供轻量动画，支持减少动态效果。
-- 平台 Tab 与节点列表同时展示 IPv4／IPv6，支持一键测速；下载规则使用列表展开维护。接入页直接检查实际 DNS 应答并展示最近查询，无需登记主机。
+- 平台 Tab 与节点列表展示 IPv4 默认／优选及下次计划，支持一键复测和恢复默认；下载规则使用列表展开维护。接入页直接检查实际 DNS 应答并展示最近查询，无需登记主机。
+- 接入查询、测速结果及运行事件使用服务端分页与自动清理；查询最多保留 7 天／10,000 条，测速结果 30 天／5,000 条，事件 30 天／500 条。规则编辑只需选择平台、填写测试下载地址和启用状态；设置保存按钮始终位于右下角。
 - 局域网来源／Host 限制、跨站写入检查，内部服务接口独立密钥校验。
 
 ## NAS 部署
@@ -39,7 +41,7 @@ docker compose up -d --wait
 
 在浏览器访问 `http://NAS_IP:8080`。主机网络设置中将 DNS 指向 NAS_IP，再在“接入检查”确认请求确实到达。先接入一台主机，实际下载通过后再推广到其他设备。服务不会修改路由器、DHCP 或全家 DNS 设置。
 
-管理页免登录，应仅在受信任局域网开放。若使用 NAS 主机名／反向代理，把该主机名填到 .env 的 ADMIN_HOSTS；未明确允许的域名 Host 会被拒绝。需要 IPv6 DNS 接入时，另行配置 Docker IPv6 网络与监听、访问网段及端口发布，不能把“支持 AAAA 应答”当作 IPv6 接入已验证。
+管理页免登录，应仅在受信任局域网开放。若使用 NAS 主机名／反向代理，把该主机名填到 .env 的 ADMIN_HOSTS；未明确允许的域名 Host 会被拒绝。本版仅提供 IPv4 接入和选优；普通域名的 AAAA 仍按标准上游语义转发。
 
 ```sh
 docker compose ps
@@ -59,6 +61,8 @@ docker compose up -d --wait
 
 `.env` 的 `DNS_ASSISTANT_IMAGE` 可改为已发布版本标签或 `ghcr.io/leoskey/dns-assistant@sha256:...`，用于固定版本和回滚。现有 NAS 若使用 `settings.env`，继续保留原密钥与卷；在 Compose 中更新两个服务的 image 即可，不要重新生成密钥或创建空卷。
 
+源站配置表格式及示例见 [规则订阅](docs/rule-feed.md)，完整行为见 [当前需求](docs/requirements.md)。本轮 NAS 离线发布及验证范围见 [验证记录](docs/validation.md)；本轮改动尚未发布到 GHCR 的 latest。
+
 ## 自动发布
 
 [Docker images 工作流](https://github.com/leoskey/dns-assistant/actions/workflows/docker.yml) 在前端构建、Vitest、Go race 测试与 vet 通过后发布 GHCR 镜像，无需额外保存 registry 密码。
@@ -77,9 +81,9 @@ docker compose up -d --wait
 
 Nintendo 的联网测速与实际游戏下载域名不同。对实际游戏下载，需要在“设置”添加对应下载域名及可访问的真实内容样本；缺少样本、需要设备认证或签名过期时，不用联网检测成绩冒充游戏下载收益。同样适用不同区域、冷门内容和新增平台域名。
 
-“最优”是在预算内验证过的候选中的当前选择。NAS 探测不是主机实时下载速度；DNS 改变只影响后续解析和连接。HTTPS／SVCB 地址提示及要求端到端 DNSSEC 的请求保留上游语义。Xbox HTTP 国内下载跳转不属于 DNS 首版模块。
+“最优”是本轮验证过的 IPv4 候选中的当前选择。NAS 探测不是主机实时下载速度；DNS 改变只影响后续解析和连接。HTTPS／SVCB 地址提示及要求端到端 DNSSEC 的请求保留上游语义。Xbox HTTP 国内下载跳转不属于 DNS 首版模块。
 
-样本与域名参考 [XboxDownload 测试配置](https://github.com/skydevil88/XboxDownload/blob/master/XboxDownload/Models/SpeedTest/SpeedTestDataBuilder.cs) 及其域名清单；本项目独立实现业务代码，实际内容读取有上限。
+样本与域名参考 [XboxDownload 测试配置](https://github.com/skydevil88/XboxDownload/blob/master/XboxDownload/Models/SpeedTest/SpeedTestDataBuilder.cs) 及其域名清单；本项目独立实现业务代码，完整测速按时间窗口停止读取，不设字节预算。
 
 ## 开发与验证
 

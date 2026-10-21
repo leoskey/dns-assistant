@@ -1,3 +1,10 @@
+export type FeedStatus = {
+  url: string;
+  attempt: string;
+  success: string;
+  error?: string;
+  version: string;
+};
 export type Rule = {
   id: string;
   platform: string;
@@ -13,8 +20,6 @@ export type Config = {
   upstreams: string[];
   allowed_cidrs: string[];
   probe_seconds: number;
-  probe_bytes: number;
-  daily_bytes: number;
   interval_seconds: number;
   health_seconds: number;
   policy_seconds: number;
@@ -25,16 +30,18 @@ export type Config = {
   rules: Rule[];
   rule_version: string;
   rule_source: string;
+  feed_url: string;
+  feed_seconds: number;
 };
 export type Selection = {
   rule_id: string;
   domain: string;
   family: string;
   ip: string;
-  backup?: string;
   speed_mbps: number;
   valid_until: string;
   changed_at: string;
+  checked_at: string;
   reason: string;
   fixed: boolean;
 };
@@ -46,6 +53,7 @@ export type Task = {
   time: string;
 };
 export type Query = {
+  id: number;
   domain: string;
   type: string;
   client: string;
@@ -56,14 +64,12 @@ export type Status = {
   enabled: boolean;
   selections: Selection[];
   tasks: Task[];
-  queries: Query[];
   version: number;
   applied_version: number;
   dns_connected: boolean;
   dns_address?: string;
-  budget_used: number;
-  budget_limit: number;
-  budget_day: string;
+  feed: FeedStatus;
+  last_tests: Record<string, string>;
   uptime_seconds: number;
   rules: Rule[];
   interval_seconds: number;
@@ -87,11 +93,13 @@ export async function api<T>(
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal,
 ): Promise<T> {
   const res = await fetch("/api/v1/" + path, {
     method,
     headers: { "Content-Type": "application/json", "X-DNS-Request": "1" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
   const data = await res.json();
   if (!res.ok) {

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -65,7 +66,7 @@ func sameOrigin(r *http.Request) bool {
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if _, e := a.m.store.Used("health"); e != nil {
+		if _, e := a.m.store.db.Exec("SELECT 1"); e != nil {
 			jsonError(w, 503, "数据库不可用")
 			return
 		}
@@ -88,16 +89,6 @@ func (a *API) Handler() http.Handler {
 		config := a.m.Config()
 		if !config.Enabled {
 			jsonError(w, 409, "自动选优已暂停，请先恢复")
-			return
-		}
-		loc, _ := time.LoadLocation(config.Timezone)
-		used, err := a.m.store.Used(time.Now().In(loc).Format("2006-01-02"))
-		if err != nil {
-			jsonError(w, 500, "预算读取失败")
-			return
-		}
-		if used >= config.DailyBytes {
-			jsonError(w, 409, "今日测速预算已用尽")
 			return
 		}
 		queued, skipped := []string{}, []string{}
@@ -124,18 +115,70 @@ func (a *API) Handler() http.Handler {
 		}
 		jsonOut(w, 200, c)
 	})
+	protected.HandleFunc("GET /api/v1/queries", func(w http.ResponseWriter, r *http.Request) {
+		p, err := parsePage(r)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		page, err := a.m.store.QueryPage(p)
+		if err != nil {
+			jsonError(w, 500, "查询记录读取失败")
+			return
+		}
+		jsonOut(w, 200, page)
+	})
 	protected.HandleFunc("GET /api/v1/history", func(w http.ResponseWriter, r *http.Request) {
-		h, e := a.m.store.History(300)
-		if e != nil {
-			jsonError(w, 500, e.Error())
+		p, err := parsePage(r)
+		if err != nil {
+			jsonError(w, 400, err.Error())
 			return
 		}
-		ev, e := a.m.store.Events()
-		if e != nil {
-			jsonError(w, 500, e.Error())
+		filter := r.URL.Query().Get("filter")
+		if filter != "" && filter != "all" && filter != "throughput" && filter != "health" && filter != "failed" {
+			jsonError(w, 400, "记录筛选无效")
 			return
 		}
-		jsonOut(w, 200, map[string]any{"results": h, "events": ev})
+		page, err := a.m.store.ResultPage(p, filter)
+		if err != nil {
+			jsonError(w, 500, "测速记录读取失败")
+			return
+		}
+		jsonOut(w, 200, page)
+	})
+	protected.HandleFunc("GET /api/v1/history/events", func(w http.ResponseWriter, r *http.Request) {
+		p, err := parsePage(r)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		page, err := a.m.store.EventPage(p)
+		if err != nil {
+			jsonError(w, 500, "运行记录读取失败")
+			return
+		}
+		jsonOut(w, 200, page)
+	})
+	protected.HandleFunc("GET /api/v1/history/daily", func(w http.ResponseWriter, r *http.Request) {
+		p, err := parsePage(r)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		page, err := a.m.store.DailyPage(p)
+		if err != nil {
+			jsonError(w, 500, "每日汇总读取失败")
+			return
+		}
+		jsonOut(w, 200, page)
+	})
+	protected.HandleFunc("POST /api/v1/rules/sync", func(w http.ResponseWriter, r *http.Request) {
+		if err := a.m.SyncFeed(r.Context()); err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		a.m.Publish(r.Context())
+		jsonOut(w, 200, map[string]bool{"ok": true})
 	})
 	protected.HandleFunc("POST /api/v1/probe", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
@@ -146,7 +189,7 @@ func (a *API) Handler() http.Handler {
 			return
 		}
 		if v.IP != "" && !PublicIP(v.IP) {
-			jsonError(w, 400, "固定节点必须为公网 IP")
+			jsonError(w, 400, "固定节点必须为公网 IPv4")
 			return
 		}
 		if !a.m.Config().Enabled && v.IP == "" {
@@ -159,18 +202,18 @@ func (a *API) Handler() http.Handler {
 		}
 		jsonOut(w, 202, map[string]string{"state": "queued"})
 	})
-	protected.HandleFunc("POST /api/v1/unfix", func(w http.ResponseWriter, r *http.Request) {
+	protected.HandleFunc("POST /api/v1/default", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			RuleID string `json:"rule_id"`
 		}
 		if !decode(w, r, &v) {
 			return
 		}
-		if e := a.m.Unfix(v.RuleID); e != nil {
+		if e := a.m.RestoreDefault(v.RuleID); e != nil {
 			jsonError(w, 500, e.Error())
 			return
 		}
-		a.m.Enqueue(Job{RuleID: v.RuleID, Kind: "throughput"})
+		a.m.Publish(r.Context())
 		jsonOut(w, 200, map[string]bool{"ok": true})
 	})
 	protected.HandleFunc("GET /api/v1/backup", func(w http.ResponseWriter, r *http.Request) {
@@ -178,21 +221,26 @@ func (a *API) Handler() http.Handler {
 		jsonOut(w, 200, struct {
 			Format int    `json:"format"`
 			Config Config `json:"config"`
-		}{1, a.m.Config()})
+		}{2, a.m.Config()})
 	})
 	protected.HandleFunc("POST /api/v1/restore", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
-			Format int    `json:"format"`
-			Config Config `json:"config"`
+			Format int             `json:"format"`
+			Config json.RawMessage `json:"config"`
 		}
 		if !decode(w, r, &v) {
 			return
 		}
-		if v.Format != 1 {
+		if v.Format != 1 && v.Format != 2 {
 			jsonError(w, 400, "备份格式不支持")
 			return
 		}
-		if e := a.m.SetConfig(v.Config); e != nil {
+		c, e := upgradeConfig(v.Config)
+		if e != nil {
+			jsonError(w, 400, e.Error())
+			return
+		}
+		if e := a.m.SetConfig(c); e != nil {
 			jsonError(w, 400, e.Error())
 			return
 		}
@@ -204,6 +252,10 @@ func (a *API) Handler() http.Handler {
 			Type   string `json:"type"`
 		}
 		if !decode(w, r, &v) {
+			return
+		}
+		if v.Type != "" && v.Type != "A" {
+			jsonError(w, 400, "接入检查只支持 IPv4 A 记录")
 			return
 		}
 		if !DomainValid(v.Domain) {
@@ -264,39 +316,66 @@ func (a *API) Handler() http.Handler {
 }
 func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	c := a.m.Config()
-	loc, _ := time.LoadLocation(c.Timezone)
-	day := time.Now().In(loc).Format("2006-01-02")
-	used, e := a.m.store.Used(day)
-	if e != nil {
-		jsonError(w, 500, "预算状态读取失败")
-		return
-	}
 	a.m.mu.RLock()
 	selections := []Selection{}
 	for _, s := range a.m.selections {
 		selections = append(selections, s)
 	}
 	nextTests := map[string]time.Time{}
+	lastTests := map[string]time.Time{}
 	for _, rule := range c.Rules {
-		next := a.m.last[rule.ID+"/throughput"].Add(time.Duration(c.IntervalSeconds) * time.Second)
+		next := a.m.nextTestLocked(rule.ID, c)
 		if next.Before(time.Now()) {
 			next = time.Now()
 		}
 		nextTests[rule.ID] = next
+		if last := a.m.last[rule.ID+"/throughput"]; !last.IsZero() {
+			lastTests[rule.ID] = last
+		}
 	}
 	tasks := []Task{}
 	for _, t := range a.m.tasks {
 		tasks = append(tasks, t)
 	}
-	queries := append([]Query{}, a.m.queries...)
 	version, applied := a.m.version, a.m.applied
+	feed := a.m.feed
 	dnsConnected := time.Since(a.m.lastSync) < 25*time.Second
 	a.m.mu.RUnlock()
 	dnsAddress := ""
-	if ip := net.ParseIP(strings.TrimSpace(os.Getenv("NAS_IP"))); ip != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() {
+	if ip := net.ParseIP(strings.TrimSpace(os.Getenv("NAS_IP"))); ip != nil && ip.To4() != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() {
 		dnsAddress = ip.String()
 	}
-	jsonOut(w, 200, map[string]any{"enabled": c.Enabled, "selections": selections, "tasks": tasks, "queries": queries, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "budget_used": used, "budget_limit": c.DailyBytes, "budget_day": day, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "interval_seconds": c.IntervalSeconds})
+	jsonOut(w, 200, map[string]any{"enabled": c.Enabled, "selections": selections, "tasks": tasks, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "feed": feed, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "last_tests": lastTests, "interval_seconds": c.IntervalSeconds})
+}
+
+func parsePage(r *http.Request) (PageRequest, error) {
+	p := PageRequest{Page: 1, Size: 20}
+	for name, dest := range map[string]*int{"page": &p.Page, "page_size": &p.Size} {
+		if values, ok := r.URL.Query()[name]; ok {
+			if len(values) != 1 {
+				return p, errors.New("分页参数重复")
+			}
+			n, err := strconv.Atoi(values[0])
+			if err != nil || n < 1 || n > 100000 {
+				return p, errors.New("分页参数无效")
+			}
+			*dest = n
+		}
+	}
+	if p.Size != 20 && p.Size != 50 && p.Size != 100 {
+		return p, errors.New("每页条数须为 20、50 或 100")
+	}
+	if values, ok := r.URL.Query()["snapshot"]; ok {
+		if len(values) != 1 {
+			return p, errors.New("分页快照重复")
+		}
+		n, err := strconv.ParseInt(values[0], 10, 64)
+		if err != nil || n < 0 {
+			return p, errors.New("分页快照无效")
+		}
+		p.Snapshot = n
+	}
+	return p, nil
 }
 func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -343,7 +422,11 @@ func Serve(ctx context.Context, addr string, h http.Handler) error {
 		defer cancel()
 		s.Shutdown(c)
 	}()
-	e := s.ListenAndServe()
+	listener, e := net.Listen("tcp4", addr)
+	if e != nil {
+		return e
+	}
+	e = s.Serve(listener)
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}

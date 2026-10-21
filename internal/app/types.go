@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,8 +29,6 @@ type Config struct {
 	Upstreams       []string `json:"upstreams"`
 	AllowedCIDRs    []string `json:"allowed_cidrs"`
 	ProbeSeconds    int      `json:"probe_seconds"`
-	ProbeBytes      int64    `json:"probe_bytes"`
-	DailyBytes      int64    `json:"daily_bytes"`
 	IntervalSeconds int      `json:"interval_seconds"`
 	HealthSeconds   int      `json:"health_seconds"`
 	PolicySeconds   int      `json:"policy_seconds"`
@@ -40,18 +39,21 @@ type Config struct {
 	Rules           []Rule   `json:"rules"`
 	RuleVersion     string   `json:"rule_version"`
 	RuleSource      string   `json:"rule_source"`
+	FeedURL         string   `json:"feed_url"`
+	FeedSeconds     int      `json:"feed_seconds"`
 }
 
+//go:embed download-rules.json
+var builtinRules []byte
+
 func DefaultConfig() Config {
-	c := Config{Enabled: true, Upstreams: []string{"223.5.5.5:53", "119.29.29.29:53"}, AllowedCIDRs: []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7"}, ProbeSeconds: 3, ProbeBytes: 8 << 20, DailyBytes: 512 << 20, IntervalSeconds: 1800, HealthSeconds: 120, PolicySeconds: 600, TTL: 60, Improvement: 0.15, CooldownSeconds: 600, Timezone: "Asia/Shanghai", RuleVersion: "2026-10-20", RuleSource: "builtin", Rules: []Rule{
-		{ID: "xbox-global", Platform: "Xbox", Domain: "xvcf1.xboxlive.com", URL: "http://xvcf1.xboxlive.com/Z/routing/extraextralarge.txt", Enabled: true, Candidates: []string{}, MinBytes: 65536},
-		{ID: "playstation", Platform: "PlayStation", Domain: "gst.prod.dl.playstation.net", URL: "http://gst.prod.dl.playstation.net/networktest/get_192m", Enabled: true, Candidates: []string{}, MinBytes: 65536},
-		{ID: "switch", Platform: "Switch", Domain: "ctest-dl-lp1.cdn.nintendo.net", URL: "http://ctest-dl-lp1.cdn.nintendo.net/30m", Enabled: true, Candidates: []string{}, MinBytes: 65536},
-	}}
-	for i, domain := range []string{"assets1.xboxlive.com", "assets2.xboxlive.com", "xvcf2.xboxlive.com", "d1.xboxlive.com", "d2.xboxlive.com", "assets1.xboxlive.cn", "assets2.xboxlive.cn", "d1.xboxlive.cn", "d2.xboxlive.cn"} {
-		c.Rules = append(c.Rules, Rule{ID: fmt.Sprintf("xbox-content-%d", i+1), Platform: "Xbox", Domain: domain, URL: "http://" + domain + "/Z/routing/extraextralarge.txt", Enabled: true, Candidates: []string{}, MinBytes: 65536})
+	c := Config{Enabled: true, Upstreams: []string{"223.5.5.5:53", "119.29.29.29:53"}, AllowedCIDRs: []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, ProbeSeconds: 5, IntervalSeconds: 86400, HealthSeconds: 1800, PolicySeconds: 7200, FeedSeconds: 21600, TTL: 60, Improvement: 0.05, CooldownSeconds: 300, Timezone: "Asia/Shanghai", RuleSource: "builtin"}
+	feed, err := parseRuleFeed(builtinRules)
+	if err != nil {
+		panic("内置下载规则无效: " + err.Error())
 	}
-	c.Rules = append(c.Rules, Rule{ID: "ps-games", Platform: "PlayStation", Domain: "gs2.ww.prod.dl.playstation.net", URL: "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA03962_00/4/f_526a2fab32d369a8ca6298b59686bf823fa9edfe95acb85bc140c27f810842ce/f/UP0102-CUSA03962_00-BH70000000000001_0.pkg", Enabled: true, Candidates: []string{}, MinBytes: 65536})
+	c.RuleVersion = feed.Version
+	c.Rules = feed.Rules
 	return c
 }
 func PublicIP(s string) bool {
@@ -59,14 +61,14 @@ func PublicIP(s string) bool {
 	if err != nil {
 		return false
 	}
-	if ip.Is4In6() {
+	if !ip.Is4() {
 		return false
 	}
 	ip = ip.Unmap()
 	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 		return false
 	}
-	for _, s := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32", "2001::/32", "2002::/16", "64:ff9b::/96"} {
+	for _, s := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4"} {
 		if netip.MustParsePrefix(s).Contains(ip) {
 			return false
 		}
@@ -99,6 +101,9 @@ func (c Config) Validate() error {
 			if e != nil || u.User != nil || u.Fragment != "" || u.Hostname() == "" {
 				return errors.New("DoH 上游地址无效")
 			}
+			if ip, e := netip.ParseAddr(u.Hostname()); e == nil && !ip.Is4() {
+				return errors.New("DoH 上游不能使用 IPv6 地址")
+			}
 			continue
 		}
 		host, port, e := net.SplitHostPort(s)
@@ -106,7 +111,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("上游须为 IP:端口 或 https:// 地址: %s", s)
 		}
 		ip, e := netip.ParseAddr(host)
-		if e != nil || ip.IsUnspecified() || ip.IsLoopback() || host == os.Getenv("NAS_IP") {
+		if e != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsLoopback() || host == os.Getenv("NAS_IP") {
 			return errors.New("上游必须是明确的非环回 IP，不能指向服务自身")
 		}
 		if port != "53" && port != "5353" {
@@ -118,20 +123,28 @@ func (c Config) Validate() error {
 	}
 	for _, s := range c.AllowedCIDRs {
 		p, e := netip.ParsePrefix(s)
-		if e != nil || p.Bits() == 0 {
+		if e != nil || !p.Addr().Is4() || p.Bits() == 0 {
 			return errors.New("访问网段无效，不能开放所有地址")
 		}
 	}
-	if c.ProbeSeconds < 1 || c.ProbeSeconds > 15 || c.ProbeBytes < 65536 || c.ProbeBytes > 64<<20 || c.DailyBytes < 1<<20 || c.DailyBytes > 100<<30 {
-		return errors.New("测速时间或流量预算超出范围")
+	if c.ProbeSeconds < 1 || c.ProbeSeconds > 15 {
+		return errors.New("测速时间须为 1–15 秒")
 	}
-	if c.IntervalSeconds < 30 || c.IntervalSeconds > 86400 || c.HealthSeconds < 10 || c.HealthSeconds > 3600 || c.PolicySeconds < c.HealthSeconds*2 || c.PolicySeconds > 86400 || c.TTL < 5 || c.TTL > 300 || c.Improvement < 0.05 || c.Improvement > 1 || c.CooldownSeconds < 0 || c.CooldownSeconds > 86400 {
+	if c.IntervalSeconds < 3600 || c.IntervalSeconds > 604800 || c.HealthSeconds < 900 || c.HealthSeconds > 86400 || c.PolicySeconds < c.HealthSeconds*2+600 || c.PolicySeconds > 604800 || c.TTL < 5 || c.TTL > 300 || c.Improvement < 0.01 || c.Improvement > 1 || c.CooldownSeconds < 0 || c.CooldownSeconds > 86400 {
 		return errors.New("调度或切换参数超出范围")
+	}
+	if c.FeedSeconds < 3600 || c.FeedSeconds > 604800 {
+		return errors.New("规则同步间隔须为 1 小时至 7 天")
+	}
+	if c.FeedURL != "" {
+		if err := validateFeedURL(c.FeedURL); err != nil {
+			return err
+		}
 	}
 	if _, e := time.LoadLocation(c.Timezone); e != nil {
 		return errors.New("时区无效")
 	}
-	if len(c.Rules) > 100 || len(c.RuleSource) == 0 || len(c.RuleVersion) == 0 || len(c.RuleSource) > 500 || len(c.RuleVersion) > 100 {
+	if len(c.Rules) > 100 || len(c.RuleSource) == 0 || len(c.RuleVersion) == 0 || len(c.RuleSource) > 2000 || len(c.RuleVersion) > 100 {
 		return errors.New("规则数量或来源过长")
 	}
 	seen := map[string]bool{}
@@ -164,7 +177,7 @@ func (c Config) Validate() error {
 		if !allowed {
 			return errors.New("规则域名不在支持的三平台下载域名范围内")
 		}
-		if r.MinBytes < 1024 || r.MinBytes > c.ProbeBytes || len(r.ExpectedPrefix) > 1024 {
+		if r.MinBytes < 1024 || r.MinBytes > 64<<20 || len(r.ExpectedPrefix) > 1024 {
 			return errors.New("内容检查参数无效")
 		}
 		if len(r.Candidates) > 64 {
@@ -172,7 +185,7 @@ func (c Config) Validate() error {
 		}
 		for _, ip := range r.Candidates {
 			if !PublicIP(ip) {
-				return errors.New("候选必须为公网 IP，不能使用内网或特殊地址")
+				return errors.New("候选必须为公网 IPv4，不能使用内网或特殊地址")
 			}
 		}
 	}
@@ -180,20 +193,22 @@ func (c Config) Validate() error {
 }
 
 type Result struct {
-	ID         int64     `json:"id"`
-	RuleID     string    `json:"rule_id"`
-	Domain     string    `json:"domain"`
-	SampleURL  string    `json:"sample_url"`
-	Profile    string    `json:"profile"`
-	IP         string    `json:"ip"`
-	Family     string    `json:"family"`
-	Kind       string    `json:"kind"`
-	Time       time.Time `json:"time"`
-	Bytes      int64     `json:"bytes"`
-	DurationMS int64     `json:"duration_ms"`
-	Speed      float64   `json:"speed_mbps"`
-	OK         bool      `json:"ok"`
-	Error      string    `json:"error,omitempty"`
+	ID            int64     `json:"id"`
+	RuleID        string    `json:"rule_id"`
+	Domain        string    `json:"domain"`
+	SampleURL     string    `json:"sample_url"`
+	Profile       string    `json:"profile"`
+	IP            string    `json:"ip"`
+	Family        string    `json:"family"`
+	Kind          string    `json:"kind"`
+	Time          time.Time `json:"time"`
+	Bytes         int64     `json:"bytes"`
+	DurationMS    int64     `json:"duration_ms"`
+	Speed         float64   `json:"speed_mbps"`
+	MeasuredBytes int64     `json:"measured_bytes"`
+	MeasuredMS    int64     `json:"measured_ms"`
+	OK            bool      `json:"ok"`
+	Error         string    `json:"error,omitempty"`
 }
 
 func Family(ip string) string {
@@ -201,7 +216,7 @@ func Family(ip string) string {
 	if e == nil && a.Is4() {
 		return "A"
 	}
-	return "AAAA"
+	return ""
 }
 
 type Selection struct {
@@ -209,14 +224,12 @@ type Selection struct {
 	Domain     string    `json:"domain"`
 	Family     string    `json:"family"`
 	IP         string    `json:"ip"`
-	Backup     string    `json:"backup,omitempty"`
 	Speed      float64   `json:"speed_mbps"`
 	ValidUntil time.Time `json:"valid_until"`
 	ChangedAt  time.Time `json:"changed_at"`
 	Reason     string    `json:"reason"`
 	Fixed      bool      `json:"fixed"`
-	Challenger string    `json:"challenger,omitempty"`
-	Streak     int       `json:"streak,omitempty"`
+	CheckedAt  time.Time `json:"checked_at"`
 }
 
 func key(domain, family string) string { return domain + "/" + family }
@@ -258,10 +271,10 @@ func AtomicJSON(path string, v any) error {
 func probeProfile(r Rule, c Config) string {
 	data, _ := json.Marshal(struct {
 		URL, Prefix string
-		Min, Max    int64
+		Min         int64
 		Seconds     int
 		Upstreams   []string
-	}{r.URL, r.ExpectedPrefix, r.MinBytes, c.ProbeBytes, c.ProbeSeconds, c.Upstreams})
+	}{r.URL, r.ExpectedPrefix, r.MinBytes, c.ProbeSeconds, c.Upstreams})
 	sum := sha256.Sum256(data)
 	return fmt.Sprintf("%x", sum)
 }

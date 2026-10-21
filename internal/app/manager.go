@@ -11,18 +11,17 @@ import (
 	"github.com/miekg/dns"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 )
 
 type Job struct {
-	RuleID string `json:"rule_id"`
-	Kind   string `json:"kind"`
-	IP     string `json:"ip,omitempty"`
+	RuleID     string `json:"rule_id"`
+	Kind       string `json:"kind"`
+	IP         string `json:"ip,omitempty"`
+	Generation uint64 `json:"-"`
+	Epoch      uint64 `json:"-"`
 }
 type Task struct {
 	RuleID  string    `json:"rule_id"`
@@ -32,6 +31,7 @@ type Task struct {
 	Time    time.Time `json:"time"`
 }
 type Query struct {
+	ID        int64     `json:"id"`
 	Domain    string    `json:"domain"`
 	Type      string    `json:"type"`
 	Client    string    `json:"client"`
@@ -40,6 +40,8 @@ type Query struct {
 }
 type Manager struct {
 	mu            sync.RWMutex
+	ruleEpoch     map[string]uint64
+	runningRule   string
 	store         *Store
 	config        Config
 	selections    map[string]Selection
@@ -47,11 +49,16 @@ type Manager struct {
 	applied       uint64
 	lastSync      time.Time
 	tasks         map[string]Task
-	queries       []Query
 	queue         chan Job
+	healthQueue   chan Job
+	generation    uint64
+	retry         map[string]time.Time
+	retryCount    map[string]int
+	feed          FeedStatus
+	feedMu        sync.Mutex
+	feedClient    *http.Client
 	pending       map[string]bool
 	last          map[string]time.Time
-	failures      map[string]int
 	cancel        context.CancelFunc
 	prober        Prober
 	resolve       func(context.Context, string, Config) []string
@@ -61,13 +68,17 @@ type Manager struct {
 }
 
 func NewManager(s *Store, dnsURL, token string) (*Manager, error) {
-	m := &Manager{store: s, selections: map[string]Selection{}, tasks: map[string]Task{}, queue: make(chan Job, 128), pending: map[string]bool{}, last: map[string]time.Time{}, failures: map[string]int{}, dnsURL: dnsURL, token: token, client: &http.Client{Timeout: 5 * time.Second}, notify: make(chan struct{}, 1)}
+	m := &Manager{store: s, selections: map[string]Selection{}, tasks: map[string]Task{}, queue: make(chan Job, 128), pending: map[string]bool{}, last: map[string]time.Time{}, healthQueue: make(chan Job, 128), generation: 1, ruleEpoch: map[string]uint64{}, retry: map[string]time.Time{}, retryCount: map[string]int{}, dnsURL: dnsURL, token: token, client: &http.Client{Timeout: 5 * time.Second}, notify: make(chan struct{}, 1)}
 	m.resolve = resolveCandidates
 	m.config = DefaultConfig()
-	if e := s.Get("config", &m.config); e != nil && !errors.Is(e, sql.ErrNoRows) {
-		return nil, e
-	}
-	if e := m.config.Validate(); e != nil {
+	var raw json.RawMessage
+	if e := s.Get("config", &raw); e == nil {
+		c, err := upgradeConfig(raw)
+		if err != nil {
+			return nil, err
+		}
+		m.config = c
+	} else if !errors.Is(e, sql.ErrNoRows) {
 		return nil, e
 	}
 	if e := s.Get("selections", &m.selections); e != nil && !errors.Is(e, sql.ErrNoRows) {
@@ -79,6 +90,23 @@ func NewManager(s *Store, dnsURL, token string) (*Manager, error) {
 	if m.version == 0 {
 		m.version = uint64(time.Now().UnixMicro())
 	}
+	for k, v := range m.selections {
+		if v.Family != "A" || v.IP != "" && !PublicIP(v.IP) {
+			delete(m.selections, k)
+		}
+	}
+	var schedule Schedule
+	if e := s.Get("schedule", &schedule); e == nil {
+		m.loadSchedule(schedule)
+	} else if !errors.Is(e, sql.ErrNoRows) {
+		return nil, e
+	}
+	if e := s.Get("feed", &m.feed); e != nil && !errors.Is(e, sql.ErrNoRows) {
+		return nil, e
+	}
+	if e := s.SaveState(m.config, m.selections, m.version); e != nil {
+		return nil, e
+	}
 	return m, nil
 }
 func (m *Manager) Config() Config {
@@ -89,41 +117,98 @@ func (m *Manager) Config() Config {
 	json.Unmarshal(b, &c)
 	return c
 }
-func (m *Manager) SetConfig(c Config) error {
-	if e := c.Validate(); e != nil {
-		return e
+func (m *Manager) SetConfig(c Config) error { return m.setConfig(c, nil, 0) }
+func (m *Manager) setConfig(c Config, feed *FeedStatus, expected uint64) error {
+	data, _ := json.Marshal(c)
+	json.Unmarshal(data, &c)
+	if err := c.Validate(); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if expected != 0 && expected != m.generation {
+		return errors.New("设置已变化，请重新同步规则")
+	}
+	beforeJSON, _ := json.Marshal(m.config)
+	if bytes.Equal(data, beforeJSON) {
+		if feed != nil {
+			if err := m.store.Set("feed", *feed); err != nil {
+				return err
+			}
+			m.feed = *feed
+			m.signal()
+		}
+		return nil
+	}
 	next := map[string]Selection{}
-	for k, s := range m.selections {
-		keep := false
-		for _, r := range c.Rules {
-			for _, before := range m.config.Rules {
-				if r.ID == s.RuleID && r.Enabled && before.ID == r.ID {
-					rb, _ := json.Marshal(r)
-					bb, _ := json.Marshal(before)
-					keep = bytes.Equal(rb, bb)
+	schedule := m.scheduleLocked()
+	retained := map[string]bool{}
+	for _, r := range c.Rules {
+		retained[r.ID] = true
+		unchanged := false
+		for _, before := range m.config.Rules {
+			rb, _ := json.Marshal(r)
+			bb, _ := json.Marshal(before)
+			if bytes.Equal(rb, bb) {
+				unchanged = true
+			}
+		}
+		if !unchanged || !m.config.Enabled && c.Enabled {
+			delete(schedule.Last, r.ID+"/throughput")
+			delete(schedule.Retry, r.ID)
+			delete(schedule.Failures, r.ID)
+		}
+		if c.HealthSeconds != m.config.HealthSeconds {
+			delete(schedule.Last, r.ID+"/health")
+		}
+		sameSample := false
+		for _, old := range m.config.Rules {
+			if old.ID == r.ID && old.Domain == r.Domain && old.URL == r.URL && old.MinBytes == r.MinBytes && old.ExpectedPrefix == r.ExpectedPrefix {
+				sameSample = true
+			}
+		}
+		if sameSample && r.Enabled {
+			if s, ok := m.selections[key(r.Domain, "A")]; ok {
+				if !c.Enabled && !s.Fixed {
+					s.ValidUntil = time.Now()
+					s.Reason = "自动选优已暂停，使用默认解析"
 				}
+				next[key(r.Domain, "A")] = s
 			}
 		}
-		if keep {
-			if !c.Enabled && !s.Fixed {
-				s.ValidUntil = time.Now()
-				s.Reason = "自动选优已暂停"
+	}
+	for k := range schedule.Last {
+		found := false
+		for _, r := range c.Rules {
+			if k == r.ID+"/throughput" || k == r.ID+"/health" {
+				found = true
 			}
-			next[k] = s
 		}
+		if !found {
+			delete(schedule.Last, k)
+		}
+	}
+	for k := range schedule.Retry {
+		if !retained[k] {
+			delete(schedule.Retry, k)
+			delete(schedule.Failures, k)
+		}
+	}
+	feedState := m.feed
+	if c.FeedURL != m.config.FeedURL {
+		feedState = FeedStatus{URL: c.FeedURL}
+	}
+	if feed != nil {
+		feedState = *feed
 	}
 	version := m.version + 1
-	if e := m.store.SaveState(c, next, version); e != nil {
-		return e
+	if err := m.store.SaveState(c, next, version, map[string]any{"schedule": schedule, "feed": feedState}); err != nil {
+		return err
 	}
-	if m.cancel != nil {
-		m.cancel()
-	}
+	m.resetJobsLocked()
+	m.loadSchedule(schedule)
+	m.feed = feedState
 	m.config = c
-	m.last = map[string]time.Time{}
 	m.selections = next
 	m.version = version
 	m.signal()
@@ -138,7 +223,7 @@ func (m *Manager) signal() {
 func (m *Manager) Enqueue(j Job) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	k := j.RuleID + "/" + j.Kind
+	k := j.RuleID
 	if m.pending[k] {
 		return false
 	}
@@ -151,8 +236,17 @@ func (m *Manager) Enqueue(j Job) bool {
 	if !found {
 		return false
 	}
+	if j.Kind != "health" && j.Kind != "throughput" {
+		return false
+	}
+	j.Generation = m.generation
+	j.Epoch = m.ruleEpoch[j.RuleID]
+	queue := m.queue
+	if j.Kind == "health" {
+		queue = m.healthQueue
+	}
 	select {
-	case m.queue <- j:
+	case queue <- j:
 		m.pending[k] = true
 		m.tasks[j.RuleID] = Task{j.RuleID, j.Kind, "queued", "等待自动探测", time.Now()}
 		m.signal()
@@ -165,12 +259,13 @@ func (m *Manager) Observe(q Query) {
 	if !DomainValid(q.Domain) || len(q.Client) > 100 {
 		return
 	}
-	q.Time = time.Now().UTC()
-	m.mu.Lock()
-	m.queries = append([]Query{q}, m.queries...)
-	if len(m.queries) > 100 {
-		m.queries = m.queries[:100]
+	if q.Time.IsZero() {
+		q.Time = time.Now().UTC()
 	}
+	if err := m.store.AddQuery(q); err != nil {
+		slog.Warn("查询记录写入失败", "error", err)
+	}
+	m.mu.Lock()
 	c := m.config
 	var id string
 	for _, r := range c.Rules {
@@ -178,13 +273,19 @@ func (m *Manager) Observe(q Query) {
 			id = r.ID
 		}
 	}
-	due := id != "" && time.Since(m.last[id+"/throughput"]) > time.Duration(c.IntervalSeconds)*time.Second
+	due := id != "" && !m.nextTestLocked(id, c).After(time.Now())
 	m.mu.Unlock()
 	if due && c.Enabled {
 		m.Enqueue(Job{RuleID: id, Kind: "throughput"})
 	}
 }
 func (m *Manager) Run(ctx context.Context) {
+	maintenanceDone := make(chan struct{})
+	go func() { m.store.maintain(ctx, time.Hour); close(maintenanceDone) }()
+	defer func() { <-maintenanceDone }()
+	feedDone := make(chan struct{})
+	go func() { m.feedLoop(ctx); close(feedDone) }()
+	defer func() { <-feedDone }()
 	workerDone := make(chan struct{})
 	go func() { m.worker(ctx); close(workerDone) }()
 	defer func() { <-workerDone }()
@@ -209,14 +310,19 @@ func (m *Manager) Run(ctx context.Context) {
 						continue
 					}
 					m.mu.RLock()
-					last := m.last[r.ID+"/throughput"]
 					health := m.last[r.ID+"/health"]
 					m.mu.RUnlock()
-					if now.Sub(last) >= time.Duration(c.IntervalSeconds)*time.Second {
-						m.Enqueue(Job{RuleID: r.ID, Kind: "throughput"})
-					} else if now.Sub(health) >= time.Duration(c.HealthSeconds)*time.Second && m.hasSelection(r.ID) {
+					if now.Sub(health) >= time.Duration(c.HealthSeconds)*time.Second && m.hasSelection(r.ID) {
 						m.Enqueue(Job{RuleID: r.ID, Kind: "health"})
+					} else {
+						m.mu.RLock()
+						due := !m.nextTestLocked(r.ID, c).After(now)
+						m.mu.RUnlock()
+						if due {
+							m.Enqueue(Job{RuleID: r.ID, Kind: "throughput"})
+						}
 					}
+
 				}
 			}
 			if now.Sub(lastPublish) > 10*time.Second {
@@ -228,43 +334,76 @@ func (m *Manager) Run(ctx context.Context) {
 }
 func (m *Manager) worker(ctx context.Context) {
 	for {
+		var j Job
 		select {
 		case <-ctx.Done():
 			return
-		case j := <-m.queue:
-			m.mu.Lock()
-			c := m.config
-			var rule Rule
-			for _, r := range c.Rules {
-				if r.ID == j.RuleID {
-					rule = r
-				}
+		case j = <-m.healthQueue:
+		default:
+			select {
+			case <-ctx.Done():
+				return
+			case j = <-m.healthQueue:
+			case j = <-m.queue:
 			}
-			jobCtx, cancel := context.WithCancel(ctx)
-			m.cancel = cancel
-			m.tasks[j.RuleID] = Task{j.RuleID, j.Kind, "running", "正在验证下载节点", time.Now()}
-			m.mu.Unlock()
-			m.signal()
-			if rule.Enabled && (c.Enabled || j.IP != "") {
-				m.execute(jobCtx, j, rule, c)
-			}
-			cancel()
-			m.mu.Lock()
-			m.cancel = nil
-			delete(m.pending, j.RuleID+"/"+j.Kind)
-			m.last[j.RuleID+"/"+j.Kind] = time.Now()
-			if t := m.tasks[j.RuleID]; t.State == "running" {
-				t.State = "idle"
-				t.Message = "本轮检查完成"
-				t.Time = time.Now()
-				m.tasks[j.RuleID] = t
-			}
-			m.mu.Unlock()
-			m.signal()
-			m.Publish(ctx)
 		}
+		m.runJob(ctx, j)
 	}
 }
+func (m *Manager) runJob(ctx context.Context, j Job) {
+	m.mu.Lock()
+	if j.Generation != m.generation || j.Epoch != m.ruleEpoch[j.RuleID] {
+		m.mu.Unlock()
+		return
+	}
+	c := m.config
+	var rule Rule
+	for _, r := range c.Rules {
+		if r.ID == j.RuleID {
+			rule = r
+			break
+		}
+	}
+	jobCtx, cancel := context.WithCancel(ctx)
+	previousCancel := m.cancel
+	previousRule := m.runningRule
+	m.runningRule = j.RuleID
+	m.cancel = cancel
+	m.tasks[j.RuleID] = Task{j.RuleID, j.Kind, "running", "正在验证下载节点", time.Now()}
+	m.mu.Unlock()
+	m.signal()
+	if rule.Enabled && (c.Enabled || j.IP != "") {
+		m.execute(jobCtx, j, rule, c)
+	}
+	cancel()
+	m.mu.Lock()
+	m.cancel = previousCancel
+	m.runningRule = previousRule
+	if j.Generation != m.generation || j.Epoch != m.ruleEpoch[j.RuleID] {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.pending, j.RuleID)
+	if j.IP == "" || m.tasks[j.RuleID].State != "error" {
+		m.last[j.RuleID+"/"+j.Kind] = time.Now().UTC()
+	}
+	t := m.tasks[j.RuleID]
+	if t.State == "running" {
+		t.State = "idle"
+		t.Message = "本轮检查完成"
+		t.Time = time.Now()
+		m.tasks[j.RuleID] = t
+	}
+	schedule := m.scheduleLocked()
+	err := m.store.Set("schedule", schedule)
+	m.mu.Unlock()
+	if err != nil {
+		m.taskError(j, err)
+	}
+	m.signal()
+	m.Publish(ctx)
+}
+
 func resolveCandidates(ctx context.Context, domain string, c Config) []string {
 	out := []string{}
 	seen := map[string]bool{}
@@ -273,7 +412,7 @@ func resolveCandidates(ctx context.Context, domain string, c Config) []string {
 		if e != nil {
 			continue
 		}
-		for _, typ := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		for _, typ := range []uint16{dns.TypeA} {
 			req := new(dns.Msg)
 			req.SetQuestion(dns.Fqdn(domain), typ)
 			select {
@@ -291,8 +430,6 @@ func resolveCandidates(ctx context.Context, domain string, c Config) []string {
 				switch a := rr.(type) {
 				case *dns.A:
 					ip = a.A.String()
-				case *dns.AAAA:
-					ip = a.AAAA.String()
 				}
 				if PublicIP(ip) && !seen[ip] {
 					seen[ip] = true
@@ -306,12 +443,18 @@ func resolveCandidates(ctx context.Context, domain string, c Config) []string {
 }
 func (m *Manager) taskError(j Job, err error) {
 	m.mu.Lock()
+	if j.Generation != 0 && (j.Generation != m.generation || j.Epoch != m.ruleEpoch[j.RuleID]) {
+		m.mu.Unlock()
+		return
+	}
 	m.tasks[j.RuleID] = Task{j.RuleID, j.Kind, "error", err.Error(), time.Now()}
 	m.mu.Unlock()
 	m.store.Event(j.RuleID + ": " + err.Error())
 }
 func (m *Manager) execute(ctx context.Context, j Job, r Rule, c Config) {
 	m.mu.RLock()
+	generation := m.generation
+	epoch := m.ruleEpoch[j.RuleID]
 	existing := []Selection{}
 	for _, s := range m.selections {
 		if s.RuleID == r.ID {
@@ -327,9 +470,6 @@ func (m *Manager) execute(ctx context.Context, j Job, r Rule, c Config) {
 		for _, s := range existing {
 			if s.IP != "" {
 				ips = append(ips, s.IP)
-			}
-			if s.Backup != "" {
-				ips = append(ips, s.Backup)
 			}
 		}
 	} else {
@@ -349,81 +489,53 @@ func (m *Manager) execute(ctx context.Context, j Job, r Rule, c Config) {
 		}
 	}
 	ips = unique
-	if len(ips) > 8 {
-		ips = ips[:8]
-	}
-	if len(ips) == 0 {
-		m.taskError(j, errors.New("未发现可用候选；保留普通解析"))
+	if ctx.Err() != nil {
 		return
 	}
-	if j.Kind != "health" && len(ips) > 3 {
-		type timed struct {
-			ip string
-			d  time.Duration
-		}
-		rank := []timed{}
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		for _, ip := range ips {
-			wg.Add(1)
-			go func(ip string) {
-				defer wg.Done()
-				port := "80"
-				if strings.HasPrefix(r.URL, "https:") {
-					port = "443"
-				}
-				start := time.Now()
-				conn, e := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(ip, port))
-				if e != nil {
-					return
-				}
-				conn.Close()
-				mu.Lock()
-				rank = append(rank, timed{ip, time.Since(start)})
-				mu.Unlock()
-			}(ip)
-		}
-		wg.Wait()
-		sort.Slice(rank, func(i, j int) bool { return rank[i].d < rank[j].d })
-		ips = nil
-		for _, x := range rank[:min(3, len(rank))] {
-			ips = append(ips, x.ip)
-		}
-		// Keep the incumbent in the comparison even when another candidate connects sooner.
-		for _, s := range existing {
-			if s.IP != "" && !contains(ips, s.IP) {
-				ips = append(ips, s.IP)
-			}
-		}
+	if len(ips) == 0 {
+		m.testFailure(j, "未发现公网 IPv4 候选，保持默认解析")
+		return
 	}
-	loc, _ := time.LoadLocation(c.Timezone)
-	day := time.Now().In(loc).Format("2006-01-02")
 	results := []Result{}
+	roundStarted := time.Now()
 	for _, ip := range ips {
 		if ctx.Err() != nil {
 			return
 		}
-		amount := c.ProbeBytes
-		budget := c.DailyBytes * 9 / 10
-		if j.Kind == "health" {
-			amount = 65536
-			budget = c.DailyBytes
+		if j.Kind == "throughput" {
+			if time.Since(roundStarted) >= time.Duration(c.HealthSeconds)*time.Second {
+				m.mu.RLock()
+				current := m.selections[key(r.Domain, "A")]
+				lastHealth := m.last[r.ID+"/health"]
+				m.mu.RUnlock()
+				if current.IP != "" && time.Since(lastHealth) >= time.Duration(c.HealthSeconds)*time.Second {
+					m.execute(ctx, Job{RuleID: r.ID, Kind: "health", Generation: j.Generation, Epoch: j.Epoch}, r, c)
+					m.Publish(ctx)
+					m.mu.RLock()
+					valid := m.selections[key(r.Domain, "A")].ValidUntil.After(time.Now())
+					m.mu.RUnlock()
+					if !valid {
+						return
+					}
+				}
+			}
+			select {
+			case health := <-m.healthQueue:
+				m.runJob(ctx, health)
+			default:
+			}
 		}
-		ok, e := m.store.Reserve(day, amount, budget)
-		if e != nil {
-			m.taskError(j, e)
+		m.mu.RLock()
+		stale := generation != m.generation || epoch != m.ruleEpoch[j.RuleID]
+		m.mu.RUnlock()
+		if stale {
 			return
-		}
-		if !ok {
-			m.taskError(j, errors.New("今日测速预算不足，延后本轮探测"))
-			break
 		}
 		result := m.prober.Probe(ctx, r, ip, c, j.Kind)
-		if e = m.store.Settle(day, amount, result.Bytes); e != nil {
-			m.taskError(j, e)
+		if ctx.Err() != nil {
 			return
 		}
-		if e = m.store.AddResult(result); e != nil {
+		if e := m.store.AddResult(result); e != nil {
 			m.taskError(j, e)
 			return
 		}
@@ -444,19 +556,11 @@ func (m *Manager) execute(ctx context.Context, j Job, r Rule, c Config) {
 	if ctx.Err() != nil || len(results) == 0 {
 		return
 	}
-	if j.Kind == "throughput" {
-		history, e := m.store.History(1000)
-		if e != nil {
-			m.taskError(j, e)
-			return
-		}
-		results = rankedHistory(results, history, time.Now())
-	}
 	m.mu.Lock()
 	// A configuration edit cancels in-flight work; results from its old rule cannot become active.
 	nowCfg, _ := json.Marshal(m.config)
 	oldCfg, _ := json.Marshal(c)
-	if !bytes.Equal(nowCfg, oldCfg) {
+	if generation != m.generation || epoch != m.ruleEpoch[j.RuleID] || !bytes.Equal(nowCfg, oldCfg) {
 		m.mu.Unlock()
 		return
 	}
@@ -465,82 +569,67 @@ func (m *Manager) execute(ctx context.Context, j Job, r Rule, c Config) {
 		next[k] = s
 	}
 	now := time.Now().UTC()
+	schedule := m.scheduleLocked()
+	recover := false
 	if j.Kind == "health" {
-		passed := map[string]bool{}
-		tested := map[string]bool{}
 		for _, v := range results {
-			passed[v.IP] = v.OK
-			tested[v.IP] = true
-		}
-		for _, s := range existing {
-			k := key(s.Domain, s.Family)
-			if !tested[s.IP] {
+			k := key(r.Domain, "A")
+			s := next[k]
+			if v.IP != s.IP {
 				continue
 			}
-			if passed[s.IP] {
+			if v.OK {
+				s.CheckedAt = now
 				s.ValidUntil = now.Add(time.Duration(c.PolicySeconds) * time.Second)
-				m.failures[k] = 0
+				s.Reason = "健康检查通过，保持当前 IP"
 			} else {
-				m.failures[k]++
-				if m.failures[k] >= 2 {
-					if !s.Fixed && s.Backup != "" && passed[s.Backup] {
-						s.IP = s.Backup
-						s.Backup = ""
-						s.Speed = 0
-						s.ChangedAt = now
-						s.ValidUntil = now.Add(time.Duration(c.PolicySeconds) * time.Second)
-						s.Reason = "原节点失效，备用内容检查通过"
-						m.last[r.ID+"/throughput"] = time.Time{}
-					} else {
-						s.ValidUntil = now
-						s.Reason = "节点健康检查失败，恢复上游解析"
-					}
-				}
+				s.ValidUntil = now
+				s.Fixed = false
+				s.Reason = "健康检查失败，已恢复默认解析，等待完整复测"
+				recover = true
 			}
 			next[k] = s
 		}
 	} else {
-		for _, family := range []string{"A", "AAAA"} {
-			rr := []Result{}
-			for _, v := range results {
-				if v.Family == family {
-					rr = append(rr, v)
-				}
-			}
-			if len(rr) == 0 {
-				continue
-			}
-			k := key(r.Domain, family)
-			old := next[k]
-			if j.IP != "" {
-				old = Selection{RuleID: r.ID, Domain: r.Domain, Family: family, IP: j.IP, Fixed: true, ChangedAt: now}
-			}
-			next[k] = Choose(old, rr, c, now)
+		k := key(r.Domain, "A")
+		old := next[k]
+		if j.IP != "" {
+			old = Selection{RuleID: r.ID, Domain: r.Domain, Family: "A", IP: j.IP, Fixed: true, ChangedAt: now}
 		}
+		next[k] = Choose(old, results, c, now)
+		if next[k].IP == "" || !next[k].ValidUntil.After(now) {
+			deferRetry(&schedule, r.ID, now)
+		} else {
+			delete(schedule.Retry, r.ID)
+			delete(schedule.Failures, r.ID)
+		}
+		schedule.Last[r.ID+"/health"] = now
 	}
+	if recover {
+		schedule.Retry[r.ID] = now
+	}
+	schedule.Last[r.ID+"/"+j.Kind] = now
 	version := m.version + 1
-	if e := m.store.SaveState(c, next, version); e != nil {
+	if e := m.store.SaveState(c, next, version, map[string]any{"schedule": schedule}); e != nil {
 		m.mu.Unlock()
 		m.taskError(j, e)
 		return
 	}
+	if j.Kind == "throughput" && (next[key(r.Domain, "A")].IP == "" || !next[key(r.Domain, "A")].ValidUntil.After(now)) {
+		m.tasks[r.ID] = Task{r.ID, j.Kind, "error", "本轮没有合格节点，使用默认解析并等待退避复测", now}
+	}
+	m.loadSchedule(schedule)
 	m.selections = next
 	m.version = version
 	m.mu.Unlock()
+	if recover {
+		m.Publish(ctx)
+	}
 	for _, s := range next {
 		if s.RuleID == r.ID {
 			m.store.Event(fmt.Sprintf("%s %s：%s", s.Domain, s.Family, s.Reason))
 		}
 	}
-	m.store.Prune()
-}
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 func (m *Manager) Publish(ctx context.Context) {
 	m.mu.RLock()
@@ -568,12 +657,16 @@ func (m *Manager) Publish(ctx context.Context) {
 	resp.Body.Close()
 	if resp.StatusCode == 200 {
 		m.mu.Lock()
-		m.applied = p.Version
+		changed := m.applied < p.Version
+		m.applied = max(m.applied, p.Version)
 		m.lastSync = time.Now()
 		m.mu.Unlock()
+		if changed {
+			m.signal()
+		}
 	}
 }
-func (m *Manager) Unfix(id string) error {
+func (m *Manager) RestoreDefault(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	found := false
@@ -590,50 +683,29 @@ func (m *Manager) Unfix(id string) error {
 		if s.RuleID == id {
 			s.Fixed = false
 			s.ValidUntil = time.Now()
-			s.Reason = "已恢复自动选优"
+			s.Reason = "已手动恢复默认解析"
 		}
 		next[k] = s
 	}
+	schedule := m.scheduleLocked()
+	schedule.Last[id+"/throughput"] = time.Now().UTC()
+	delete(schedule.Retry, id)
+	delete(schedule.Failures, id)
 	version := m.version + 1
-	if e := m.store.SaveState(m.config, next, version); e != nil {
-		return e
+	if err := m.store.SaveState(m.config, next, version, map[string]any{"schedule": schedule}); err != nil {
+		return err
 	}
+	m.ruleEpoch[id]++
+	if m.runningRule == id && m.cancel != nil {
+		m.cancel()
+	}
+	delete(m.pending, id)
+	m.tasks[id] = Task{id, "throughput", "idle", "已恢复默认解析，等待计划或手动复测", time.Now()}
+	m.loadSchedule(schedule)
 	m.selections = next
 	m.version = version
+	m.signal()
 	return nil
-}
-
-func rankedHistory(current []Result, history []Result, now time.Time) []Result {
-	out := append([]Result{}, current...)
-	for i, r := range out {
-		if !r.OK || r.Kind != "throughput" {
-			continue
-		}
-		recent := []float64{}
-		total := 0
-		for _, h := range history {
-			if h.Domain != r.Domain || h.IP != r.IP || h.Family != r.Family || h.Profile != r.Profile || h.Kind != "throughput" || now.Sub(h.Time) > 2*time.Hour {
-				continue
-			}
-			total++
-			if h.OK {
-				recent = append(recent, h.Speed)
-			}
-			if total >= 3 {
-				break
-			}
-		}
-		if total > 0 && len(recent)*3 < total*2 {
-			out[i].OK = false
-			out[i].Error = "近期成功率不足"
-			continue
-		}
-		if len(recent) > 0 {
-			sort.Float64s(recent)
-			out[i].Speed = recent[len(recent)/2]
-		}
-	}
-	return out
 }
 
 func (m *Manager) hasSelection(id string) bool {

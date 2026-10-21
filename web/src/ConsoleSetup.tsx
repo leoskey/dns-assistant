@@ -131,12 +131,6 @@ export function ConsoleSetup({
               <p className="copy-feedback" role="status" aria-live="polite">
                 {feedback || "仅填写 IP 地址，不加 http:// 或端口。"}
               </p>
-              {address.includes(":") && (
-                <p className="setup-warning">
-                  这是 IPv6 地址。主机若只接受 IPv4，请先为服务配置局域网 IPv4
-                  地址。
-                </p>
-              )}
             </>
           ) : (
             <p className="setup-warning" role="status">

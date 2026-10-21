@@ -27,12 +27,12 @@ func TestConfigTrustBoundaries(t *testing.T) {
 	if e := c.Validate(); e != nil {
 		t.Fatal(e)
 	}
-	for _, ip := range []string{"127.0.0.1", "10.0.0.1", "100.64.1.1", "169.254.169.254", "::1", "::ffff:192.168.1.1", "2001:db8::1", "224.0.0.1"} {
+	for _, ip := range []string{"127.0.0.1", "10.0.0.1", "100.64.1.1", "169.254.169.254", "::1", "::ffff:192.168.1.1", "2001:db8::1", "224.0.0.1", "2606:4700:4700::1111"} {
 		if PublicIP(ip) {
 			t.Errorf("unsafe IP allowed: %s", ip)
 		}
 	}
-	for _, ip := range []string{"1.1.1.1", "223.5.5.5", "2606:4700:4700::1111"} {
+	for _, ip := range []string{"1.1.1.1", "223.5.5.5"} {
 		if !PublicIP(ip) {
 			t.Errorf("public IP rejected: %s", ip)
 		}
@@ -40,7 +40,7 @@ func TestConfigTrustBoundaries(t *testing.T) {
 	cases := []func(*Config){func(c *Config) { c.AllowedCIDRs = []string{"0.0.0.0/0"} }, func(c *Config) { c.Upstreams = []string{"127.0.0.1:53"} }, func(c *Config) { c.Rules[0].URL = "http://10.0.0.1/private" }, func(c *Config) {
 		c.Rules[0].Domain = "login.microsoft.com"
 		c.Rules[0].URL = "https://login.microsoft.com/"
-	}, func(c *Config) { c.Rules[0].Candidates = []string{"192.168.1.1"} }, func(c *Config) { c.ProbeBytes = 0 }, func(c *Config) { c.Rules = append(c.Rules, c.Rules[0]) }}
+	}, func(c *Config) { c.Rules[0].Candidates = []string{"192.168.1.1"} }, func(c *Config) { c.ProbeSeconds = 0 }, func(c *Config) { c.Rules = append(c.Rules, c.Rules[0]) }}
 	for i, change := range cases {
 		c := DefaultConfig()
 		change(&c)
@@ -55,58 +55,42 @@ func TestConfigTrustBoundaries(t *testing.T) {
 func result(ip string, speed float64, ok bool) Result {
 	return Result{RuleID: "xbox-global", Domain: "xvcf1.xboxlive.com", Family: "A", IP: ip, Kind: "throughput", Speed: speed, OK: ok}
 }
-func TestSelectionHysteresisAndFallback(t *testing.T) {
+func TestSelectionSpeedAndFallback(t *testing.T) {
 	c := DefaultConfig()
 	now := time.Now()
 	old := Choose(Selection{}, []Result{result("1.1.1.1", 20, true), result("8.8.8.8", 10, true)}, c, now)
-	if old.IP != "1.1.1.1" || old.Backup != "8.8.8.8" {
+	if old.IP != "1.1.1.1" {
 		t.Fatal(old)
 	}
 	old.ChangedAt = now.Add(-time.Hour)
-	rr := []Result{result("1.1.1.1", 20, true), result("8.8.8.8", 40, true)}
-	first := Choose(old, rr, c, now)
-	if first.IP != old.IP || first.Streak != 1 {
-		t.Fatal(first)
+	close := Choose(old, []Result{result("1.1.1.1", 20, true), result("8.8.8.8", 20.5, true)}, c, now)
+	if close.IP != old.IP {
+		t.Fatal("near rates caused churn", close)
 	}
-	second := Choose(first, rr, c, now)
-	if second.IP != "8.8.8.8" {
-		t.Fatal(second)
+	rr := []Result{result("1.1.1.1", 20, true), result("8.8.8.8", 40, true)}
+	if got := Choose(old, rr, c, now); got.IP != "8.8.8.8" {
+		t.Fatal("faster candidate needs extra rounds", got)
 	}
 	cooling := old
 	cooling.ChangedAt = now
-	cooling.Challenger = "8.8.8.8"
-	cooling.Streak = 1
 	if Choose(cooling, rr, c, now).IP != old.IP {
 		t.Fatal("cooldown ignored")
 	}
-	dead := Choose(old, []Result{result("1.1.1.1", 0, false), result("8.8.8.8", 5, true)}, c, now)
-	if dead.IP != "8.8.8.8" {
-		t.Fatal(dead)
+	if got := Choose(old, []Result{result("1.1.1.1", 0, false), result("8.8.8.8", 5, true)}, c, now); got.IP != "8.8.8.8" {
+		t.Fatal(got)
 	}
-	empty := Choose(old, []Result{result("1.1.1.1", 0, false)}, c, now)
-	if empty.IP != "" || empty.ValidUntil.After(now) {
-		t.Fatal(empty)
+	if got := Choose(old, []Result{result("1.1.1.1", 0, false)}, c, now); got.IP != "" || got.ValidUntil.After(now) {
+		t.Fatal(got)
 	}
-	fixed := old
-	fixed.Fixed = true
-	if Choose(fixed, rr, c, now).IP != old.IP {
+	old.Fixed = true
+	if Choose(old, rr, c, now).IP != old.IP {
 		t.Fatal("fixed moved")
 	}
 }
-func TestStoreBudgetPersistenceAndTransactions(t *testing.T) {
+func TestStorePersistenceAndTransactions(t *testing.T) {
 	dir := t.TempDir()
 	s, e := OpenStore(dir)
 	if e != nil {
-		t.Fatal(e)
-	}
-	ok, e := s.Reserve("2026-10-20", 80, 100)
-	if e != nil || !ok {
-		t.Fatal(e)
-	}
-	if ok, _ := s.Reserve("2026-10-20", 30, 100); ok {
-		t.Fatal("overspent")
-	}
-	if e = s.Settle("2026-10-20", 80, 50); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()
@@ -115,12 +99,6 @@ func TestStoreBudgetPersistenceAndTransactions(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.Close()
-	if used, _ := s.Used("2026-10-20"); used != 50 {
-		t.Fatal(used)
-	}
-	if ok, _ := s.Reserve("2026-10-21", 100, 100); !ok {
-		t.Fatal("new day failed")
-	}
 	c := DefaultConfig()
 	if e = s.SaveState(c, map[string]Selection{}, 1); e != nil {
 		t.Fatal(e)
@@ -187,10 +165,9 @@ func TestProbeHTTPBoundaries(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := probeFixture(t, tc.handler)
 			c := DefaultConfig()
-			c.ProbeBytes = 65536
 			r := c.Rules[0]
 			r.ExpectedPrefix = tc.prefix
-			v := p.Probe(context.Background(), r, "1.1.1.1", c, "throughput")
+			v := p.Probe(context.Background(), r, "1.1.1.1", c, "health")
 			if math.IsNaN(v.Speed) || math.IsInf(v.Speed, 0) {
 				t.Fatal("non-finite throughput", v)
 			}
@@ -368,8 +345,8 @@ func TestDNSProtocolsCachePolicyAndExpiry(t *testing.T) {
 		}
 	}
 	r := query(t, d, domain, dns.TypeAAAA, false, false, false)
-	if !strings.Contains(r.String(), "2606:4700") {
-		t.Fatal("family fallback", r)
+	if r.Rcode != dns.RcodeSuccess || len(r.Answer) != 0 {
+		t.Fatal("target AAAA must be NODATA", r)
 	}
 	for _, flags := range [][2]bool{{true, false}, {false, true}} {
 		r = query(t, d, domain, dns.TypeA, false, flags[0], flags[1])
@@ -485,10 +462,10 @@ func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 	for _, tc := range []struct{ configured, want string }{
 		{"192.168.2.100", "192.168.2.100"},
 		{" 192.168.2.100 ", "192.168.2.100"},
-		{"fd12::100", "fd12::100"},
+		{"fd12::100", ""},
 		{"", ""}, {"localhost", ""}, {"192.168.2.100:8080", ""},
 		{"127.0.0.1", ""}, {"::1", ""}, {"0.0.0.0", ""},
-		{"169.254.1.1", ""}, {"224.0.0.1", ""},
+		{"169.254.1.1", ""}, {"224.0.0.1", ""}, {"2606:4700:4700::1111", ""},
 	} {
 		t.Run(tc.configured, func(t *testing.T) {
 			t.Setenv("NAS_IP", tc.configured)
@@ -574,13 +551,10 @@ func TestAutomaticManagerPublishAndFailedPin(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	m.prober, _ = probeFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(bytes.Repeat([]byte("a"), 65536))
-	})
+	m.prober, _ = probeFixture(t, streamSample)
 	m.resolve = func(context.Context, string, Config) []string { return []string{"1.1.1.1"} }
 	c := DefaultConfig()
-	c.ProbeBytes = 65536
+	c.ProbeSeconds = 1
 	c.Rules = c.Rules[:1]
 	c.Rules[0].Candidates = []string{"1.1.1.1"}
 	if e = m.SetConfig(c); e != nil {
@@ -667,37 +641,51 @@ func TestAtomicSnapshotFailureKeepsCurrent(t *testing.T) {
 var _ = fmt.Sprint
 var _ = io.EOF
 
-func TestProbeTimeWindowAndHealthMinimum(t *testing.T) {
-	p, _ := probeFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(bytes.Repeat([]byte("z"), 65536))
-		w.(http.Flusher).Flush()
+func streamSample(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	chunk := bytes.Repeat([]byte("z"), 65536)
+	for {
 		select {
 		case <-r.Context().Done():
-		case <-time.After(2 * time.Second):
+			return
+		case <-time.After(5 * time.Millisecond):
 		}
-	})
+		if _, err := w.Write(chunk); err != nil {
+			return
+		}
+		w.(http.Flusher).Flush()
+	}
+}
+func TestProbeTimeWindowAndHealthMinimum(t *testing.T) {
+	p, _ := probeFixture(t, streamSample)
 	c := DefaultConfig()
 	c.ProbeSeconds = 1
-	c.ProbeBytes = 1 << 20
 	r := c.Rules[0]
 	v := p.Probe(context.Background(), r, "1.1.1.1", c, "throughput")
-	if !v.OK || v.Bytes != 65536 || v.DurationMS < 900 {
-		t.Fatal("valid bounded time window rejected", v)
+	if !v.OK || v.Bytes < 1<<20 || v.MeasuredMS < 700 || v.DurationMS < 900 {
+		t.Fatal("sustained window rejected", v)
 	}
 	r.MinBytes = 1 << 20
 	v = p.Probe(context.Background(), r, "1.1.1.1", c, "health")
 	if !v.OK || v.Bytes != 65536 {
-		t.Fatal("health minimum exceeds its cap", v)
+		t.Fatal("health cap/minimum", v)
 	}
 }
-func TestHealthFailureSwitchesBackupAndBudgetExhaustion(t *testing.T) {
+func TestHealthFailureRestoresDefaultBeforeRetest(t *testing.T) {
 	s, e := OpenStore(t.TempDir())
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer s.Close()
-	m, e := NewManager(s, "http://127.0.0.1:1", strings.Repeat("s", 40))
+	publishedCh := make(chan Policy, 1)
+	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p Policy
+		json.NewDecoder(r.Body).Decode(&p)
+		publishedCh <- p
+		jsonOut(w, 200, map[string]bool{"ok": true})
+	}))
+	defer control.Close()
+	m, e := NewManager(s, control.URL, strings.Repeat("s", 40))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -705,58 +693,19 @@ func TestHealthFailureSwitchesBackupAndBudgetExhaustion(t *testing.T) {
 	c.Rules = c.Rules[:1]
 	r := c.Rules[0]
 	m.config = c
-	m.selections[key(r.Domain, "A")] = Selection{RuleID: r.ID, Domain: r.Domain, Family: "A", IP: "1.1.1.1", Backup: "8.8.8.8", ValidUntil: time.Now().Add(time.Minute)}
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) }))
-	defer bad.Close()
-	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(bytes.Repeat([]byte("z"), 65536))
-	}))
-	defer good.Close()
-	m.prober = Prober{dial: func(ctx context.Context, n, addr string) (net.Conn, error) {
-		target := good.URL
-		if strings.HasPrefix(addr, "1.1.1.1:") {
-			target = bad.URL
-		}
-		return (&net.Dialer{}).DialContext(ctx, n, strings.TrimPrefix(target, "http://"))
-	}}
-	for i := 0; i < 2; i++ {
-		m.execute(context.Background(), Job{RuleID: r.ID, Kind: "health"}, r, c)
-	}
-	selected := m.selections[key(r.Domain, "A")]
-	if selected.IP != "8.8.8.8" || !selected.ValidUntil.After(time.Now()) {
-		t.Fatal("backup did not activate", selected)
-	}
-	loc, _ := time.LoadLocation(c.Timezone)
-	day := time.Now().In(loc).Format("2006-01-02")
-	used, _ := s.Used(day)
-	s.Reserve(day, c.DailyBytes-used, c.DailyBytes)
-	before := m.version
+	m.selections[key(r.Domain, "A")] = Selection{RuleID: r.ID, Domain: r.Domain, Family: "A", IP: "1.1.1.1", ValidUntil: time.Now().Add(time.Hour)}
+	m.prober, _ = probeFixture(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) })
 	m.execute(context.Background(), Job{RuleID: r.ID, Kind: "health"}, r, c)
-	if m.version != before {
-		t.Fatal("budget exhaustion applied untested results")
+	selected := m.selections[key(r.Domain, "A")]
+	if selected.ValidUntil.After(time.Now()) || selected.Fixed {
+		t.Fatal("bad node still active", selected)
 	}
-	if m.tasks[r.ID].State != "error" {
-		t.Fatal("budget status missing")
+	published := <-publishedCh
+	if len(published.Selections) != 1 || published.Selections[0].ValidUntil.After(time.Now()) {
+		t.Fatal("default was not published before retest", published)
 	}
-}
-func TestRankedHistoryRejectsUnstableCandidate(t *testing.T) {
-	now := time.Now()
-	cur := result("1.1.1.1", 100, true)
-	cur.Time = now
-	history := []Result{cur, result("1.1.1.1", 0, false), result("1.1.1.1", 0, false)}
-	for i := range history {
-		history[i].Time = now
-	}
-	if rankedHistory([]Result{cur}, history, now)[0].OK {
-		t.Fatal("unstable candidate accepted")
-	}
-	history = []Result{cur, result("1.1.1.1", 20, true), result("1.1.1.1", 30, true)}
-	for i := range history {
-		history[i].Time = now
-	}
-	if rankedHistory([]Result{cur}, history, now)[0].Speed != 30 {
-		t.Fatal("median not used")
+	if m.nextTestLocked(r.ID, c).After(time.Now()) {
+		t.Fatal("recovery test not due")
 	}
 }
 func TestCoreReloadsSnapshotWithoutController(t *testing.T) {
@@ -787,7 +736,9 @@ func TestPolicyOrderAndTimezoneAreIdempotent(t *testing.T) {
 	p := *d.policy.Load()
 	now := time.Now().UTC()
 	p.Version = 1
-	p.Selections = []Selection{{RuleID: "xbox-global", Domain: p.Config.Rules[0].Domain, Family: "A", IP: "1.1.1.1", ValidUntil: now.Add(time.Minute)}, {RuleID: "xbox-global", Domain: p.Config.Rules[0].Domain, Family: "AAAA", IP: "2606:4700:4700::1111", ValidUntil: now.Add(time.Minute)}}
+	p.Selections = []Selection{{RuleID: "xbox-global", Domain: p.Config.Rules[0].Domain, Family: "A", IP: "1.1.1.1", ValidUntil: now.Add(time.Minute)}, {RuleID: "xbox-global", Domain: p.Config.Rules[0].Domain, Family: "A", IP: "8.8.8.8", ValidUntil: now.Add(time.Minute)}}
+	p.Selections[1].RuleID = p.Config.Rules[1].ID
+	p.Selections[1].Domain = p.Config.Rules[1].Domain
 	if e := d.Apply(context.Background(), p); e != nil {
 		t.Fatal(e)
 	}

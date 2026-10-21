@@ -1,5 +1,13 @@
 # Docker 镜像发布与维护
 
+## 当前 NAS 离线发布
+
+2026-10-20 的选优重构已使用 `dns-assistant:2026.10.20-optimization-r2` 离线镜像部署到现有 amd64 fnOS NAS。该版本尚未提交到 GitHub 或发布到 GHCR，以下 GHCR latest／版本标签流程不会自动提供本轮改动。当前部署的两个服务均设置 pull_policy: never，使用已导入的本地镜像；不要直接改回旧 latest。
+
+本轮离线镜像包 SHA256 为 `fc77a889e10c6d670ede528fbe10de2994c058123fde86304007bafb14ff8d68`，Docker 导出镜像 ID 为 `sha256:78764719f76186f9622d7cdbc0f71f589ecb3250be7a7533e7da3f6177c910b7`。完整卷备份与现场检查见 [验证记录](validation.md)。后续公开发布时，先通过以下 CI 与镜像检查，再切换 NAS 到对应固定发布版本。
+
+## GHCR 发布流程
+
 镜像地址：`ghcr.io/leoskey/dns-assistant`。工作流位于 [.github/workflows/docker.yml](../.github/workflows/docker.yml)，由 main 推送、`vX.Y.Z` 标签或手动触发；PR 只验证。推送到自己的 fork 时会发布到该 fork 的 GHCR 命名空间，部署时同步修改 `DNS_ASSISTANT_IMAGE`。
 
 ## 流程与权限

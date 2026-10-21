@@ -6,6 +6,8 @@ import React, {
   useCallback,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
+import { QueryRecords, HistoryRecords } from "./Records";
 import {
   BrowserRouter,
   NavLink,
@@ -33,18 +35,8 @@ import {
   X,
   Download,
   Upload,
-  RefreshCw,
 } from "lucide-react";
-import {
-  api,
-  bytes,
-  date,
-  active,
-  type Config,
-  type Status,
-  type Selection,
-  type Result,
-} from "./api";
+import { api, date, active, type Config, type Status } from "./api";
 import "./style.css";
 type ContextValue = {
   status: Status | null;
@@ -163,6 +155,7 @@ function App() {
               {status?.enabled ? "暂停自动选优" : "恢复自动选优"}
             </button>
           </section>
+          <div id="settings-actions" className="settings-actions" />
           <main className="workspace">
             {notice && (
               <div className="notice" role="status">
@@ -262,7 +255,7 @@ function Overview() {
           </h2>
           <p>
             {chosen.length
-              ? "后台会持续检查节点，表现更好且稳定时自动切换。"
+              ? "按计划复测，整轮完成后优先选择下载更快的节点；健康检查失败时先恢复默认解析。"
               : status.tasks.length
                 ? "还没有通过检查的优选节点。当前使用普通解析，可在平台页查看原因。"
                 : "服务已可正常解析。有效下载节点会在自动检测通过后显示。"}
@@ -287,7 +280,7 @@ function Overview() {
         <div className="board-footer">
           <span>
             <ListChecks aria-hidden="true" />
-            {chosen.length} 个有效地址族策略
+            {chosen.length} 个域名已有优选节点
           </span>
           <span>
             <Activity
@@ -320,21 +313,6 @@ function Overview() {
           <PlatformSummary key={p} platform={p} />
         ))}
       </div>
-      <section className="budget">
-        <div>
-          <h3>今日测速用量</h3>
-          <p>测试会消耗少量流量；达到预算后延后吞吐复测，优先检查可用性。</p>
-        </div>
-        <div className="budget-number">
-          {bytes(status.budget_used)}{" "}
-          <span>/ {bytes(status.budget_limit)}</span>
-          <progress
-            aria-label="今日测速流量"
-            max={status.budget_limit}
-            value={status.budget_used}
-          />
-        </div>
-      </section>
       <p className="footnote">
         探测速度来自 NAS
         测试，不代表主机实时下载速度。节点切换在重新解析和建立连接后生效。
@@ -388,9 +366,8 @@ function Platforms() {
   return <PlatformList {...useApp()} />;
 }
 function Connection() {
-  const { status, message } = useApp(),
+  const { message } = useApp(),
     [domain, setDomain] = useState("xvcf1.xboxlive.com"),
-    [type, setType] = useState("A"),
     [check, setCheck] = useState<{
       rcode: string;
       answers: string[];
@@ -411,7 +388,7 @@ function Connection() {
             e.preventDefault();
             setBusy(true);
             try {
-              setCheck(await api("check", { domain, type }));
+              setCheck(await api("check", { domain, type: "A" }));
             } catch (e) {
               message((e as Error).message);
             } finally {
@@ -428,17 +405,6 @@ function Connection() {
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
           />
-          <label className="sr-only" htmlFor="query-type">
-            地址族
-          </label>
-          <select
-            id="query-type"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          >
-            <option>A</option>
-            <option>AAAA</option>
-          </select>
           <button className="primary" disabled={busy}>
             {busy ? "检查中…" : "检查解析"}
           </button>
@@ -457,168 +423,43 @@ function Connection() {
         )}
       </section>
       <h2 className="section-heading">最近收到的查询</h2>
-      <p className="muted">在主机上运行网络测试后查看来源和域名；通过路由器转发时，来源可能只显示路由器。配置方法见首页主机指引。</p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>来源</th>
-              <th>域名</th>
-              <th>类型</th>
-              <th>解析方式</th>
-              <th>时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {status?.queries.length ? (
-              status.queries.slice(0, 30).map((q, i) => (
-                <tr key={i}>
-                  <td>{q.client}</td>
-                  <td>{q.domain}</td>
-                  <td>{q.type}</td>
-                  <td>{q.optimized ? "优选节点" : "上游解析"}</td>
-                  <td>{date(q.time)}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5} className="empty">
-                  还没有收到查询。请先设置主机 DNS，再重新执行网络测试。
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <p className="muted">
+        在主机上运行网络测试后查看来源和域名；通过路由器转发时，来源可能只显示路由器。配置方法见首页主机指引。
+      </p>
+      <QueryRecords />
     </>
   );
 }
 function History() {
-  const [history, setHistory] = useState<{
-      results: Result[];
-      events: { time: string; message: string }[];
-    } | null>(null),
-    [error, setError] = useState(""),
-    [filter, setFilter] = useState("all");
-  const load = useCallback(async () => {
-    try {
-      setHistory(await api("history"));
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-    const t = setInterval(() => void load(), 10000);
-    return () => clearInterval(t);
-  }, [load]);
   return (
     <>
-      <Title title="测速记录" sub="查看每次探测的证据，以及节点变化的原因。">
-        <button onClick={() => void load()}>
-          <RefreshCw aria-hidden="true" />
-          刷新记录
-        </button>
-      </Title>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="filter">
-        <label htmlFor="result-filter">显示</label>
-        <select
-          id="result-filter"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option value="all">全部探测</option>
-          <option value="throughput">吞吐测试</option>
-          <option value="health">健康检查</option>
-          <option value="failed">失败记录</option>
-        </select>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>时间与域名</th>
-              <th>候选 IP</th>
-              <th>类型</th>
-              <th>结果</th>
-              <th>读取用量</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history?.results
-              .filter(
-                (r) =>
-                  filter === "all" ||
-                  (filter === "failed" && !r.ok) ||
-                  r.kind === filter,
-              )
-              .map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <strong>{r.domain}</strong>
-                    <small>{date(r.time)}</small>
-                  </td>
-                  <td>
-                    {r.ip}
-                    <small>{r.family}</small>
-                  </td>
-                  <td>{r.kind === "health" ? "健康检查" : "吞吐测试"}</td>
-                  <td>
-                    {r.ok ? (
-                      <span className="success">
-                        {r.kind === "throughput"
-                          ? r.speed_mbps.toFixed(1) + " Mbps"
-                          : "可用"}
-                      </span>
-                    ) : (
-                      <span className="error">{r.error}</span>
-                    )}
-                  </td>
-                  <td>{bytes(r.bytes)}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-        {history && !history.results.length && (
-          <p className="empty">
-            尚无测速记录。启用规则后，自动任务会生成第一条结果。
-          </p>
-        )}
-        {!history && !error && <p className="empty">正在读取历史…</p>}
-      </div>
-      <h2 className="section-heading">运行与切换记录</h2>
-      <ul className="event-list">
-        {history?.events.map((e, i) => (
-          <li key={i}>
-            <time>{date(e.time)}</time>
-            <span>{e.message}</span>
-          </li>
-        ))}
-      </ul>
+      <Title
+        title="测速记录"
+        sub="查看探测结果与节点变化。较早记录自动清理。"
+      />
+      <HistoryRecords />
     </>
   );
 }
 function Settings() {
-  const { refresh, message } = useApp(),
+  const { refresh, message, status } = useApp(),
+    [syncing, setSyncing] = useState(false),
     [config, setConfig] = useState<Config | null>(null),
     [error, setError] = useState(""),
     [rules, setRules] = useState(""),
+    [saved, setSaved] = useState(""),
     [busy, setBusy] = useState(false);
   useEffect(() => {
     api<Config>("config")
       .then((c) => {
         setConfig(c);
         setRules(JSON.stringify(c.rules, null, 2));
+        setSaved(JSON.stringify(c));
       })
       .catch((e) => setError(e.message));
   }, []);
   function field<K extends keyof Config>(key: K, value: Config[K]) {
+    setError("");
     setConfig((c) => (c ? { ...c, [key]: value } : c));
   }
   if (!config)
@@ -633,6 +474,8 @@ function Settings() {
       const updated = { ...config!, rules: parsed };
       await api("config", updated, "PUT");
       setConfig(updated);
+      setRules(JSON.stringify(updated.rules, null, 2));
+      setSaved(JSON.stringify(updated));
       setError("");
       message("设置已保存，后台任务使用新配置");
       await refresh();
@@ -642,121 +485,213 @@ function Settings() {
       setBusy(false);
     }
   }
+  let dirty = true;
+  try {
+    dirty = saved !== JSON.stringify({ ...config, rules: JSON.parse(rules) });
+  } catch {
+    /* Invalid JSON is an unsaved edit. */
+  }
   return (
     <>
       <Title
         title="设置"
-        sub="调整解析、测速用量及平台规则。保存前会检查完整配置。"
+        sub="设置低频测试与下载规则。保存前会检查完整配置。"
       />
-      <form onSubmit={save}>
-        <section className="settings-section">
-          <div>
-            <h2>解析与访问</h2>
-            <p>普通域名使用这些上游。请勿填写 NAS 自身的 DNS 地址。</p>
-          </div>
-          <div className="fields">
-            <label>
-              上游 DNS（每行一个 IP:端口 或 DoH URL）
-              <textarea
-                rows={3}
-                value={config.upstreams.join("\n")}
-                onChange={(e) => field("upstreams", e.target.value.split("\n"))}
-              />
-            </label>
-            <label>
-              允许访问的局域网网段（每行一个）
-              <textarea
-                rows={4}
-                value={config.allowed_cidrs.join("\n")}
-                onChange={(e) =>
-                  field("allowed_cidrs", e.target.value.split("\n"))
-                }
-              />
-            </label>
-            <label>
-              时区
-              <input
-                value={config.timezone}
-                onChange={(e) => field("timezone", e.target.value)}
-              />
-            </label>
-          </div>
-        </section>
-        <section className="settings-section">
-          <div>
-            <h2>自动测速</h2>
-            <p>后台持续检查。吞吐测试串行执行，预算不足会延后。</p>
-          </div>
-          <div className="fields two-col">
-            {(
-              [
-                ["daily_bytes", "每日预算（MiB）", 1048576],
-                ["probe_bytes", "单节点读取上限（MiB）", 1048576],
-                ["probe_seconds", "单节点时间上限（秒）", 1],
-                ["interval_seconds", "吞吐复测间隔（秒）", 1],
-                ["health_seconds", "健康检查间隔（秒）", 1],
-                ["policy_seconds", "健康有效期（秒）", 1],
-                ["ttl", "优选应答 TTL（秒）", 1],
-                ["cooldown_seconds", "切换冷却（秒）", 1],
-                ["improvement", "切换优势（%）", 0.01],
-              ] as const
-            ).map(([k, label, scale]) => (
-              <label key={k}>
-                {label}
-                <input
-                  type="number"
-                  step={k === "improvement" ? 1 : "any"}
-                  required
-                  value={Number((config[k] / scale).toFixed(3))}
-                  onChange={(e) => field(k, Number(e.target.value) * scale)}
+      <form id="settings-form" onSubmit={save}>
+        <fieldset className="settings-fields" disabled={busy || syncing}>
+          <section className="settings-section">
+            <div>
+              <h2>解析与访问</h2>
+              <p>普通域名使用这些上游。请勿填写 NAS 自身的 DNS 地址。</p>
+            </div>
+            <div className="fields">
+              <label>
+                上游 DNS（每行一个 IP:端口 或 DoH URL）
+                <textarea
+                  rows={3}
+                  value={config.upstreams.join("\n")}
+                  onChange={(e) =>
+                    field("upstreams", e.target.value.split("\n"))
+                  }
                 />
               </label>
-            ))}
-          </div>
-        </section>
-        <section className="settings-section">
-          <div>
-            <h2>平台下载规则</h2>
-            <p>
-              每个域名必须有自己的有效测试样本。内置规则会逐域名验证下载样本；只有验证通过的域名才会应用节点。Nintendo
-              联网检测与游戏下载应分别配置样本。
-            </p>
-            <p>
-              支持 Xbox 下载、PlayStation 下载及 Nintendo
-              下载域名。内容前缀可用于进一步确认样本。
-            </p>
-          </div>
-          <div className="fields">
-            <label>
-              规则版本
-              <input
-                required
-                value={config.rule_version}
-                onChange={(e) => field("rule_version", e.target.value)}
+              <label>
+                允许访问的局域网网段（每行一个）
+                <textarea
+                  rows={4}
+                  value={config.allowed_cidrs.join("\n")}
+                  onChange={(e) =>
+                    field("allowed_cidrs", e.target.value.split("\n"))
+                  }
+                />
+              </label>
+              <label>
+                时区
+                <input
+                  value={config.timezone}
+                  onChange={(e) => field("timezone", e.target.value)}
+                />
+              </label>
+            </div>
+          </section>
+          <section className="settings-section">
+            <div>
+              <h2>自动测速</h2>
+              <p>
+                默认每日复测、每 30
+                分钟检查当前节点。测速按时长读取，不限制流量。
+              </p>
+            </div>
+            <div className="fields two-col">
+              {(
+                [
+                  ["probe_seconds", "单节点测速窗口（秒）", 1],
+                  ["interval_seconds", "吞吐复测间隔（秒）", 1],
+                  ["health_seconds", "健康检查间隔（秒）", 1],
+                ] as const
+              ).map(([k, label, scale]) => (
+                <label key={k}>
+                  {label}
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={Number((config[k] / scale).toFixed(3))}
+                    onChange={(e) => {
+                      const n = Number(e.target.value) * scale;
+                      field(k, n);
+                      if (k === "health_seconds")
+                        field(
+                          "policy_seconds",
+                          Math.max(config.policy_seconds, n * 3 + 600),
+                        );
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className="settings-section">
+            <div>
+              <h2>源站配置表</h2>
+              <p>
+                填写 HTTPS
+                规则表地址后定时同步。同步失败时继续使用上次可用规则。
+              </p>
+            </div>
+            <div className="fields">
+              <label>
+                规则表 URL
+                <input
+                  type="url"
+                  placeholder="https://example.com/download-rules.json"
+                  value={config.feed_url}
+                  onChange={(e) => field("feed_url", e.target.value)}
+                />
+              </label>
+              <label>
+                自动同步间隔（小时）
+                <input
+                  type="number"
+                  min="1"
+                  max="168"
+                  value={config.feed_seconds / 3600}
+                  onChange={(e) =>
+                    field("feed_seconds", Number(e.target.value) * 3600)
+                  }
+                />
+              </label>
+              <div className="row-actions">
+                <button
+                  type="button"
+                  disabled={syncing || dirty || !config.feed_url}
+                  onClick={async () => {
+                    setSyncing(true);
+                    try {
+                      await api("rules/sync", {});
+                      const c = await api<Config>("config");
+                      setConfig(c);
+                      setRules(JSON.stringify(c.rules, null, 2));
+                      setSaved(JSON.stringify(c));
+                      await refresh();
+                      message("规则表已同步");
+                    } catch (e) {
+                      await refresh();
+                      message((e as Error).message);
+                    } finally {
+                      setSyncing(false);
+                    }
+                  }}
+                >
+                  {syncing ? "同步中…" : "立即同步"}
+                </button>
+                {dirty && <small>先保存设置，再同步规则表。</small>}
+              </div>
+              <p className="muted">
+                最近成功：
+                {status?.feed?.success &&
+                !status.feed.success.startsWith("0001")
+                  ? date(status.feed.success)
+                  : "尚未同步"}{" "}
+                · 版本：{status?.feed?.version || config.rule_version}
+              </p>
+              {status?.feed?.error && (
+                <p className="error" role="alert">
+                  {status.feed.error}；继续使用上次可用规则。
+                </p>
+              )}
+            </div>
+          </section>
+          <section className="settings-section">
+            <div>
+              <h2>平台下载规则</h2>
+              <p>
+                每个域名必须有自己的有效测试样本。内置规则会逐域名验证下载样本；只有验证通过的域名才会应用节点。Nintendo
+                联网检测与游戏下载应分别配置样本。
+              </p>
+              <p>
+                填写测试下载地址即可，域名自动识别。候选 IP
+                与内容检查放在高级选项中。
+              </p>
+            </div>
+            <div className="fields">
+              <RuleListEditor
+                value={rules}
+                onChange={(v) => {
+                  setRules(v);
+                  setError("");
+                }}
               />
-            </label>
-            <label>
-              规则来源
-              <input
-                required
-                value={config.rule_source}
-                onChange={(e) => field("rule_source", e.target.value)}
-              />
-            </label>
-            <RuleListEditor value={rules} onChange={setRules} />
-          </div>
-        </section>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
+            </div>
+          </section>
+        </fieldset>
+        {createPortal(
+          <div className="save-bar">
+            <div aria-live="polite">
+              <span>
+                {error
+                  ? "保存失败，请检查输入后重试"
+                  : dirty
+                    ? "有未保存的修改"
+                    : "设置已保存"}
+              </span>
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
+            <button
+              form="settings-form"
+              type="submit"
+              className="primary"
+              disabled={busy || syncing || !dirty}
+            >
+              {busy ? "保存中…" : "保存设置"}
+            </button>
+          </div>,
+          document.getElementById("settings-actions")!,
         )}
-        <div className="save-bar">
-          <button className="primary" disabled={busy}>
-            {busy ? "保存中…" : "保存设置"}
-          </button>
-          <span>修改规则会使受影响的旧结果失效。</span>
-        </div>
       </form>
       <section className="backup">
         <div>
@@ -774,6 +709,7 @@ function Settings() {
           恢复配置
           <input
             type="file"
+            disabled={busy}
             accept=".json,application/json"
             onChange={async (e) => {
               const file = e.target.files?.[0];
@@ -782,6 +718,7 @@ function Settings() {
                 e.target.value = "";
                 return;
               }
+              setBusy(true);
               try {
                 if (file.size > 1048576)
                   throw new Error("配置文件不能超过 1 MiB");
@@ -790,12 +727,15 @@ function Settings() {
                 const c = await api<Config>("config");
                 setConfig(c);
                 setRules(JSON.stringify(c.rules, null, 2));
+                setSaved(JSON.stringify(c));
+                setError("");
                 await refresh();
                 message("配置已恢复");
               } catch (err) {
                 message((err as Error).message);
               } finally {
                 e.target.value = "";
+                setBusy(false);
               }
             }}
           />

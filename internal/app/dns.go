@@ -45,7 +45,27 @@ func (d *DNS) Start(ctx context.Context) error {
 	}
 	var p Policy
 	if b, e := os.ReadFile(filepath.Join(d.dir, "policy.json")); e == nil {
-		if json.Unmarshal(b, &p) == nil && d.validatePolicy(p) == nil {
+		var saved struct {
+			Config json.RawMessage `json:"config"`
+		}
+		json.Unmarshal(b, &saved)
+		config, configErr := upgradeConfig(saved.Config)
+		decodeErr := json.Unmarshal(b, &p)
+		if d.testMode && decodeErr == nil {
+			config = p.Config
+			configErr = nil
+		}
+		if decodeErr == nil && configErr == nil {
+			p.Config = config
+			filtered := []Selection{}
+			for _, v := range p.Selections {
+				if v.Family == "A" && (v.IP == "" || PublicIP(v.IP)) {
+					filtered = append(filtered, v)
+				}
+			}
+			p.Selections = filtered
+		}
+		if decodeErr == nil && configErr == nil && d.validatePolicy(p) == nil {
 			normalizePolicy(&p)
 			d.policy.Store(&p)
 		}
@@ -66,13 +86,19 @@ func (d *DNS) makeProxy(c Config) (*proxy.Proxy, error) {
 	if e != nil {
 		return nil, e
 	}
-	ua, e := net.ResolveUDPAddr("udp", d.addr)
+	ua, e := net.ResolveUDPAddr("udp4", d.addr)
 	if e != nil {
 		return nil, e
 	}
-	ta, e := net.ResolveTCPAddr("tcp", d.addr)
+	ta, e := net.ResolveTCPAddr("tcp4", d.addr)
 	if e != nil {
 		return nil, e
+	}
+	if ua.IP == nil {
+		ua.IP = net.IPv4zero
+	}
+	if ta.IP == nil {
+		ta.IP = net.IPv4zero
 	}
 	return proxy.New(&proxy.Config{UDPListenAddr: []*net.UDPAddr{ua}, TCPListenAddr: []*net.TCPAddr{ta}, UpstreamConfig: up, UpstreamMode: proxy.UpstreamModeParallel, CacheEnabled: true, CacheSizeBytes: 16 << 20, MaxGoroutines: 128, RefuseAny: true, RequestHandler: proxy.HandlerFunc(d.handle)})
 }
@@ -122,8 +148,25 @@ func (d *DNS) handle(ctx context.Context, p *proxy.Proxy, q *proxy.DNSContext) e
 		}
 		return nil
 	}
+	target := false
+	for _, r := range state.Config.Rules {
+		if r.Enabled && r.Domain == name {
+			target = true
+			break
+		}
+	}
+	if target && family == "AAAA" && q.Req.Question[0].Qclass == dns.ClassINET {
+		q.Res = new(dns.Msg)
+		q.Res.SetReply(q.Req)
+		q.Res.RecursionAvailable = true
+		select {
+		case d.observed <- Query{Domain: name, Type: family, Client: source, Time: now.UTC()}:
+		default:
+		}
+		return nil
+	}
 	optimized := false
-	if q.Req.Question[0].Qclass == dns.ClassINET && !q.Req.CheckingDisabled && !(q.Req.IsEdns0() != nil && q.Req.IsEdns0().Do()) && (family == "A" || family == "AAAA") {
+	if q.Req.Question[0].Qclass == dns.ClassINET && !q.Req.CheckingDisabled && !(q.Req.IsEdns0() != nil && q.Req.IsEdns0().Do()) && family == "A" {
 		for _, s := range state.Selections {
 			if s.Domain != name || s.Family != family || s.IP == "" || !s.ValidUntil.After(now) {
 				continue
@@ -144,11 +187,7 @@ func (d *DNS) handle(ctx context.Context, p *proxy.Proxy, q *proxy.DNSContext) e
 			q.Res.AuthenticatedData = false
 			ttl := min(state.Config.TTL, uint32(max(1, int(time.Until(s.ValidUntil).Seconds()))))
 			hdr := dns.RR_Header{Name: q.Req.Question[0].Name, Rrtype: q.Req.Question[0].Qtype, Class: dns.ClassINET, Ttl: ttl}
-			if family == "A" {
-				q.Res.Answer = []dns.RR{&dns.A{Hdr: hdr, A: net.ParseIP(s.IP).To4()}}
-			} else {
-				q.Res.Answer = []dns.RR{&dns.AAAA{Hdr: hdr, AAAA: net.ParseIP(s.IP)}}
-			}
+			q.Res.Answer = []dns.RR{&dns.A{Hdr: hdr, A: net.ParseIP(s.IP).To4()}}
 			size := dns.MaxMsgSize
 			if q.Proto == proxy.ProtoUDP {
 				size = dns.MinMsgSize
@@ -192,7 +231,7 @@ func (d *DNS) validatePolicy(p Policy) error {
 				ruleOK = true
 			}
 		}
-		if !ruleOK || s.Family != "A" && s.Family != "AAAA" || s.IP != "" && (!PublicIP(s.IP) || Family(s.IP) != s.Family) || s.Backup != "" && (!PublicIP(s.Backup) || Family(s.Backup) != s.Family) {
+		if !ruleOK || s.Family != "A" || s.IP != "" && (!PublicIP(s.IP) || Family(s.IP) != s.Family) {
 			return errors.New("策略域名或节点无效")
 		}
 		k := key(s.Domain, s.Family)
@@ -335,8 +374,9 @@ func (d *DNS) Handler() http.Handler {
 			return
 		}
 		typ := dns.TypeA
-		if v.Type == "AAAA" {
-			typ = dns.TypeAAAA
+		if v.Type != "" && v.Type != "A" {
+			jsonError(w, 400, "接入检查只支持 IPv4 A 记录")
+			return
 		}
 		msg := new(dns.Msg)
 		msg.SetQuestion(dns.Fqdn(v.Domain), typ)

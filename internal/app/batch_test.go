@@ -3,10 +3,9 @@ package app
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
-func TestBatchProbeDeduplicatesAndHonorsLimits(t *testing.T) {
+func TestBatchProbeDeduplicatesAndHonorsPause(t *testing.T) {
 	a, h := testAPI(t)
 	if r := call(h, "POST", "/api/v1/probe-batch", `{"platform":"unknown"}`, "1", ""); r.Code != 400 {
 		t.Fatal("unknown platform accepted")
@@ -33,9 +32,7 @@ func TestBatchProbeDeduplicatesAndHonorsLimits(t *testing.T) {
 	if err := a.m.SetConfig(c); err != nil {
 		t.Fatal(err)
 	}
-	loc, _ := time.LoadLocation(c.Timezone)
-	a.m.store.Reserve(time.Now().In(loc).Format("2006-01-02"), c.DailyBytes, c.DailyBytes)
-	if r = call(h, "POST", "/api/v1/probe-batch", `{}`, "1", ""); r.Code != 409 {
-		t.Fatal("exhausted budget batch accepted")
+	if r = call(h, "POST", "/api/v1/probe-batch", `{}`, "1", ""); r.Code != 202 {
+		t.Fatal("batch rejected without budget", r.Body.String())
 	}
 }
