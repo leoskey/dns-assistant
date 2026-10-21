@@ -2,92 +2,103 @@
 
 [![Docker images](https://github.com/leoskey/dns-assistant/actions/workflows/docker.yml/badge.svg)](https://github.com/leoskey/dns-assistant/actions/workflows/docker.yml)
 
-在 NAS 上用 Docker 部署的家庭游戏主机 DNS 服务。面向中国大陆家宽，支持 Xbox、PlayStation、Nintendo Switch 的已配置下载域名；运行时自动测量候选节点、选择并应用 IP，失败时回到普通解析。
+部署在 NAS 上的家庭游戏主机 DNS 优选工具。针对配置的 Xbox、PlayStation 和 Nintendo Switch 域名，在 NAS 上测试候选公网 IPv4 的持续下载速度，并将合格节点用于后续 DNS 应答。
 
-管理界面使用 React，采用 shadcn/ui neutral 风格与 Lucide 图标，局域网直接访问，无需登录。产品独立运行，不需要 AdGuard Home。DNS 基础使用已锁定的 dnsproxy 库，下载吞吐选优由本项目实现。
+提供中文管理页面，局域网直接访问，无需登录，也不需要安装 AdGuard Home。项目优化的是已配置域名的节点选择；实际游戏下载效果取决于规则、样本和家庭网络。
 
-## 已实现
+## 主要功能
 
-- UDP／TCP DNS、上游缓存、公网 IPv4 优选、目标 AAAA NODATA、精确域名匹配、超时回退。
-- 启动与运行期间自动探测；HTTP 内容检查、吞吐采样、本轮持续下载速度排名、速度接近时保留节点、固定节点验证。
-- 按时长测速，不限字节、不设每日预算；默认每日复测、每 30 分钟检查当前节点，故障先恢复默认再完整复测，调度持久化。
-- HTTPS 规则表定时同步、完整校验、失败保留上次可用配置；每日速度、失败与切换汇总保留 90 天。
-- 双容器隔离，版本化策略与独立快照；管理停止时 DNS 继续服务，策略过期恢复普通解析。
-- React 总览、平台、接入检查、历史、可视化设置与规则维护、配置备份恢复及 SSE。
-- 首页显示可复制的 NAS DNS 地址及 PS5／PS4、Xbox、Switch 设置指引；页面与操作提供轻量动画，支持减少动态效果。
-- 平台 Tab 与节点列表展示 IPv4 默认／优选及下次计划，支持一键复测和恢复默认；下载规则使用列表展开维护。接入页直接检查实际 DNS 应答并展示最近查询，无需登记主机。
-- 接入查询、测速结果及运行事件使用服务端分页与自动清理；查询最多保留 7 天／10,000 条，测速结果 30 天／5,000 条，事件 30 天／500 条。规则编辑只需选择平台、填写测试下载地址和启用状态；设置保存按钮始终位于右下角。
-- 局域网来源／Host 限制、跨站写入检查，内部服务接口独立密钥校验。
+- **按域名自动选优**：候选来自规则配置、上游 DNS 的 A 记录和当前节点；各域名独立测试，保持原 Host／SNI 并校验证书。
+- **按下载速度排名**：完整测速按时间窗口执行，不限速、不设字节上限或每日流量预算；速度接近时保留当前节点，减少频繁切换。
+- **低频复测与故障回退**：默认每 24 小时完整复测、每 30 分钟检查当前节点；调度持久化，重启后不重复刚完成的测试。
+- **规则订阅**：在后台填写一个 HTTPS JSON 地址，默认每 6 小时同步；完整校验后替换规则，同步失败保留上次可用配置。
+- **管理与记录**：支持接入检查、立即复测、恢复默认、暂停选优、规则编辑和配置备份恢复。查询、测速及事件记录分页显示并自动清理，每日汇总有界保留；设置保存按钮固定在右下角。
+- **独立 DNS 服务**：提供 IPv4 UDP／TCP DNS 和普通解析缓存。管理容器停止后，DNS 容器继续使用有效策略，策略过期后恢复默认解析。
 
-## NAS 部署
+完整测速会占用带宽并产生实际下载流量。默认调度为低频执行，可在设置中调整或暂停自动选优。
 
-需要 Docker Engine 与 Compose v2。先为 NAS 保留固定局域网 IP，检查宿主机 TCP／UDP 53 和 TCP 8080 可用。默认数据卷应位于 NAS 本地文件系统。
+## 工作方式
 
-预构建镜像为 `ghcr.io/leoskey/dns-assistant:latest`，同时支持 `linux/amd64` 和 `linux/arm64`，Docker 自动选择 NAS 对应架构。默认 Compose 直接拉取镜像。
+1. 主机向 NAS 查询 DNS。没有有效优选时，使用普通上游解析，查询不等待测速。
+2. 后台收集已配置域名的合法候选，用该域名的样本逐个检查内容并测量持续下载速度。
+3. 完整测试结束后选择合格节点，发布给 DNS 服务。连接延迟不参与速度排名，正常复测期间继续使用有效旧优选。
+4. 健康检查失败时，先撤销该域名的覆盖、恢复默认解析，再进行完整复测；通过后重新应用优选。
+5. DNS 更新影响后续解析和新连接，已经建立的下载连接不会因此重新连接。
 
-中国大陆访问 GHCR 缓慢时，可在 `.env` 将 `DNS_ASSISTANT_IMAGE` 改为 `ghcr.nju.edu.cn/leoskey/dns-assistant:latest`，通过南京大学 GHCR 缓存拉取相同发布内容。本项目已验证该路径的 NAS 冷下载与实际重建，详见 [NAS 拉取加速与升级](docs/image-release.md#nas-拉取加速与升级)。
+这里的“优选”表示本轮已验证候选中的选择，不代表找到了整个 CDN 的全部 IP，也不代表主机已经获得相同比例的提速。
+
+## 快速部署与接入
+
+### 环境要求
+
+- 支持 Docker Engine 与 Compose v2 的 NAS，使用固定局域网 IPv4。
+- NAS 的 TCP／UDP 53 和 TCP 8080 可用，主机可以访问这些端口。
+- 数据卷位于 NAS 本地文件系统，部署机器能够下载构建所需的基础镜像和依赖。
+
+下面使用源码构建，部署的是当前检出的代码。预构建镜像对应其发布提交，使用前应核对版本；源码更新不代表已经进入 GHCR 的 `latest`。镜像部署与版本核对见 [镜像发布维护](docs/image-release.md)。
+
+### 安装
 
 ```sh
 git clone https://github.com/leoskey/dns-assistant.git
 cd dns-assistant
 cp .env.example .env
-# 编辑 NAS_IP，填写 NAS 的固定局域网 IPv4
-docker compose pull
-docker compose run --rm --no-deps controller keygen
-# 把生成的值填入 .env 的 SERVICE_TOKEN，替换示例占位值
-docker compose config --quiet
-docker compose up -d --wait
 ```
 
-在浏览器访问 `http://NAS_IP:8080`。主机网络设置中将 DNS 指向 NAS_IP，再在“接入检查”确认请求确实到达。先接入一台主机，实际下载通过后再推广到其他设备。服务不会修改路由器、DHCP 或全家 DNS 设置。
-
-管理页免登录，应仅在受信任局域网开放。若使用 NAS 主机名／反向代理，把该主机名填到 .env 的 ADMIN_HOSTS；未明确允许的域名 Host 会被拒绝。本版仅提供 IPv4 接入和选优；普通域名的 AAAA 仍按标准上游语义转发。
+编辑 `.env`，将 `NAS_IP` 改为 NAS 的固定局域网 IPv4，然后构建镜像并生成服务密钥：
 
 ```sh
-docker compose ps
-docker compose logs --tail 100
-docker compose restart
-docker compose down
+docker compose -f compose.yaml -f compose.build.yaml build
+docker compose -f compose.yaml -f compose.build.yaml run --rm --no-deps controller keygen
 ```
 
-`down` 保留配置与历史卷；勿在希望保留数据时使用 `down -v`。停止 NAS DNS 前，请把主机 DNS 改回自动或另一台可用实例。第二 DNS 可能被客户端并行使用，填写公共 DNS 会降低选优覆盖的确定性。
-
-更新镜像时，先导出设置并保留 `.env` 与两个数据卷，再运行：
+将生成的密钥填入 `.env` 的 `SERVICE_TOKEN`，替换示例占位值。该密钥用于两个服务之间的通信。随后检查并启动：
 
 ```sh
-docker compose pull
-docker compose up -d --wait
+docker compose -f compose.yaml -f compose.build.yaml config --quiet
+docker compose -f compose.yaml -f compose.build.yaml up -d --wait
+docker compose -f compose.yaml -f compose.build.yaml ps
 ```
 
-`.env` 的 `DNS_ASSISTANT_IMAGE` 可改为已发布版本标签或 `ghcr.io/leoskey/dns-assistant@sha256:...`，用于固定版本和回滚。现有 NAS 若使用 `settings.env`，继续保留原密钥与卷；在 Compose 中更新两个服务的 image 即可，不要重新生成密钥或创建空卷。
+两项服务应显示为 `healthy`。在浏览器访问 `http://NAS_IP:8080`。源码部署后续操作继续带上这两个 `-f` 参数，避免切回其他镜像。
 
-源站配置表格式及示例见 [规则订阅](docs/rule-feed.md)，完整行为见 [当前需求](docs/requirements.md)。本轮 NAS 离线发布及验证范围见 [验证记录](docs/validation.md)；本轮改动尚未发布到 GHCR 的 latest。
+管理页面免登录，只应在受信任局域网开放。使用 NAS 主机名或反向代理时，将允许的主机名加入 `.env` 的 `ADMIN_HOSTS`；不要将管理入口直接暴露到公网。
 
-## 自动发布
+### 连接游戏主机
 
-[Docker images 工作流](https://github.com/leoskey/dns-assistant/actions/workflows/docker.yml) 在前端构建、Vitest、Go race 测试与 vet 通过后发布 GHCR 镜像，无需额外保存 registry 密码。
+1. 在首页查看 PS5／PS4、Xbox 或 Switch 的 DNS 设置指引，将主 DNS 设置为 NAS 的 IPv4。
+2. 在“接入检查”查看实际查询来源，确认请求到达；也可检查指定域名的 DNS 应答。
+3. 在“平台选优”查看当前节点、最近测速、下次计划和失败原因，需要时使用“立即复测”或“恢复默认”。
 
-| 触发 | 镜像标签 |
-| --- | --- |
-| 推送 main／在 main 手动运行 | `latest`、`sha-完整提交号` |
-| 推送 `vX.Y.Z` 标签 | `X.Y.Z`、`X.Y`、`sha-完整提交号`；不改动 `latest` |
-| main 的 Pull Request | 仅运行验证，不发布 |
+先接入一台主机，实际下载验证后再接入其他设备。服务不会自动修改路由器、DHCP 或全家设备的 DNS。
 
-每次发布包含两种架构的统一 manifest、源码与提交标签、构建来源信息；工作流实际运行两个架构的配置命令。摘要记录可用于固定镜像的 digest。本项目镜像已公开并通过匿名拉取验证；fork 创建的新包首次发布后需在包设置中设为 Public，详见 [镜像发布维护](docs/image-release.md)。
+公共备用 DNS 可能被主机并行使用，从而绕过选优。NAS 停机、升级或停止服务前，先将主机 DNS 恢复自动或切换到其他可用服务；平台操作与故障处理见 [部署说明](docs/deployment.md)。
 
-## 下载规则与适用范围
+## 适用范围与限制
 
-默认内置 Xbox 全球／国内下载域名、PlayStation 样本和 Nintendo 联网检测样本。每条规则只在自己的域名与样本验证通过后生效；样本失效或节点拒绝请求会保留上游解析。内置域名不代表已在用户家宽通过验证。
+- **规则只作用于精确域名。** 默认内置 Xbox 全球／国内域名、PlayStation 下载与测速样本、Nintendo 连接测试样本；内置不代表已在每个家庭网络中验证，也不代表覆盖平台全部下载域名。
+- **样本必须适用于当前域名。** 节点需返回有效内容且样本足够覆盖测速窗口。样本失效、需要设备认证或签名过期时，应更换可用样本，不能强行视为测速成功。
+- **连接测试与游戏下载分别判断。** Switch 的 `ctest` 等连接测试成绩不能证明实际游戏下载更快；实际下载域名需要对应的有效内容样本。
+- **NAS 测速不是主机实时速度。** DNS 记录只能说明收到了哪些查询，不能显示游戏下载进度、HTTPS 内容或实际下载带宽。经路由器转发时，查询来源可能只显示路由器。
+- **仅优选公网 IPv4。** 启用规则的域名 AAAA 返回 NODATA，其他域名 AAAA 保持上游语义。HTTPS／SVCB 地址提示可能影响客户端选址；要求端到端 DNSSEC 的 A 查询保留原始上游应答。
+- **用途为下载节点选择。** 不提供 Xbox 国际地址转国内地址的 HTTP 跳转、下载代理或对战网络加速。
 
-Nintendo 的联网测速与实际游戏下载域名不同。对实际游戏下载，需要在“设置”添加对应下载域名及可访问的真实内容样本；缺少样本、需要设备认证或签名过期时，不用联网检测成绩冒充游戏下载收益。同样适用不同区域、冷门内容和新增平台域名。
+本版已完成自动化、Linux/amd64 容器及 amd64 NAS 运行检查；Linux/arm64 已完成编译检查。三平台真实主机下载收益和 NAS 宿主机重启仍需实测，详见 [验证记录](docs/validation.md)。
 
-“最优”是本轮验证过的 IPv4 候选中的当前选择。NAS 探测不是主机实时下载速度；DNS 改变只影响后续解析和连接。HTTPS／SVCB 地址提示及要求端到端 DNSSEC 的请求保留上游语义。Xbox HTTP 国内下载跳转不属于 DNS 首版模块。
+## 维护与文档
 
-样本与域名参考 [XboxDownload 测试配置](https://github.com/skydevil88/XboxDownload/blob/master/XboxDownload/Models/SpeedTest/SpeedTestDataBuilder.cs) 及其域名清单；本项目独立实现业务代码，完整测速按时间窗口停止读取，不设字节预算。
+在“设置”中维护平台、测试下载地址和启用状态，候选 IP 与内容校验位于高级选项。订阅更新会整体替换规则，包括本地手工修改；表格式、同步与关闭方式见 [规则订阅](docs/rule-feed.md)。
 
-## 开发与验证
+升级前保留 `.env` 和两个完整数据卷；界面导出的配置不包含历史、每日汇总及调度时间，不能代替卷备份。获取目标版本源码后重新构建并启动：
 
-Go 1.27.2、Node 24。依赖锁定在 go.mod／go.sum 和 web/package-lock.json。前端由 Go 嵌入，因此先构建 Web 再执行 Go 测试或编译。
+```sh
+docker compose -f compose.yaml -f compose.build.yaml build
+docker compose -f compose.yaml -f compose.build.yaml up -d --wait
+```
+
+`docker compose down` 默认保留数据卷；`down -v` 会删除数据。回滚到旧数据库格式的程序时，需要同时恢复匹配的数据卷快照。具体升级、回滚和日志检查方法见 [部署说明](docs/deployment.md)。
+
+开发需要 Go 1.27.2 和 Node.js 24，前端构建后嵌入 Go 程序：
 
 ```sh
 npm ci --prefix web
@@ -96,28 +107,14 @@ npm test --prefix web
 go test ./...
 go vet ./...
 go build -o bin/dns-assistant ./cmd/dns-assistant
-docker build --target test -t dns-assistant:test .
-docker buildx build --platform linux/arm64 -t dns-assistant:arm64 --load .
 ```
 
-需要在 NAS 或开发机从源码构建时，使用独立覆盖文件：
-
-```sh
-docker compose -f compose.yaml -f compose.build.yaml build
-docker compose -f compose.yaml -f compose.build.yaml up -d --wait
-```
-
-后续对源码部署的操作继续带上这两个 `-f` 参数，避免切回预构建镜像。
-
-本机双进程开发可分别设置 SERVICE_TOKEN、DATA_DIR、LISTEN_ADDR、CONTROL_ADDR、DNS_CONTROL_URL、MANAGER_INTERNAL_URL、WEB_ADDR、INTERNAL_ADDR；服务间使用同一随机密钥。默认使用 DNS 5353、控制 9090、Web 8080、观察 8081，均可用环境变量调整。前端开发代理默认指向 127.0.0.1:8080。
-
-- [完整验收标准](docs/acceptance.md)
-- [验证结果与待实测项目](docs/validation.md)
-- [当前需求](docs/requirements.md)
+- [需求与行为说明](docs/requirements.md)
+- [验收标准](docs/acceptance.md)
+- [验证记录与浏览器测试方法](docs/validation.md)
 - [实现与技术选型](docs/architecture/technology-selection.md)
-- [部署检查与故障处理](docs/deployment.md)
-- [镜像发布维护](docs/image-release.md)
 - [管理 API](docs/api.md)
-- [第三方组件许可记录](THIRD_PARTY_NOTICES.md)
+- [镜像发布维护](docs/image-release.md)
+- [第三方组件许可](THIRD_PARTY_NOTICES.md)
 
-NAS／真实主机的下载收益须按验收标准实测，容器和自动化通过不代替现场验收。
+样本来源参考 [XboxDownload 测试配置](https://github.com/skydevil88/XboxDownload/blob/master/XboxDownload/Models/SpeedTest/SpeedTestDataBuilder.cs)。本项目独立实现 DNS 选优业务逻辑，第三方组件的许可说明随源码与镜像提供。
