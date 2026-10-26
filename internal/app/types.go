@@ -50,7 +50,7 @@ func DefaultConfig() Config {
 	c := Config{Enabled: true, Upstreams: []string{"223.5.5.5:53", "119.29.29.29:53"}, AllowedCIDRs: []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, ProbeSeconds: 5, IntervalSeconds: 86400, HealthSeconds: 1800, PolicySeconds: 7200, FeedSeconds: 21600, TTL: 60, Improvement: 0.05, CooldownSeconds: 300, Timezone: "Asia/Shanghai", RuleSource: "builtin"}
 	feed, err := parseRuleFeed(builtinRules)
 	if err != nil {
-		panic("内置下载规则无效: " + err.Error())
+		panic("�������ع�����Ч: " + err.Error())
 	}
 	c.RuleVersion = feed.Version
 	c.Rules = feed.Rules
@@ -93,48 +93,48 @@ func DomainValid(s string) bool {
 }
 func (c Config) Validate() error {
 	if len(c.Upstreams) < 1 || len(c.Upstreams) > 5 {
-		return errors.New("上游 DNS 数量须为 1–5")
+		return errors.New("���� DNS ������Ϊ 1�C5")
 	}
 	for _, s := range c.Upstreams {
 		if strings.HasPrefix(s, "https://") {
 			u, e := url.Parse(s)
 			if e != nil || u.User != nil || u.Fragment != "" || u.Hostname() == "" {
-				return errors.New("DoH 上游地址无效")
+				return errors.New("DoH ���ε�ַ��Ч")
 			}
 			if ip, e := netip.ParseAddr(u.Hostname()); e == nil && !ip.Is4() {
-				return errors.New("DoH 上游不能使用 IPv6 地址")
+				return errors.New("DoH ���β���ʹ�� IPv6 ��ַ")
 			}
 			continue
 		}
 		host, port, e := net.SplitHostPort(s)
 		if e != nil || port == "" {
-			return fmt.Errorf("上游须为 IP:端口 或 https:// 地址: %s", s)
+			return fmt.Errorf("������Ϊ IP:�˿� �� https:// ��ַ: %s", s)
 		}
 		ip, e := netip.ParseAddr(host)
 		if e != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsLoopback() || host == os.Getenv("NAS_IP") {
-			return errors.New("上游必须是明确的非环回 IP，不能指向服务自身")
+			return errors.New("���α�������ȷ�ķǻ��� IP������ָ���������")
 		}
 		if port != "53" && port != "5353" {
-			return errors.New("普通上游仅支持 53 或 5353")
+			return errors.New("��ͨ���ν�֧�� 53 �� 5353")
 		}
 	}
 	if len(c.AllowedCIDRs) == 0 || len(c.AllowedCIDRs) > 32 {
-		return errors.New("请设置允许访问的局域网网段")
+		return errors.New("�������������ʵľ���������")
 	}
 	for _, s := range c.AllowedCIDRs {
 		p, e := netip.ParsePrefix(s)
 		if e != nil || !p.Addr().Is4() || p.Bits() == 0 {
-			return errors.New("访问网段无效，不能开放所有地址")
+			return errors.New("����������Ч�����ܿ������е�ַ")
 		}
 	}
 	if c.ProbeSeconds < 1 || c.ProbeSeconds > 15 {
-		return errors.New("测速时间须为 1–15 秒")
+		return errors.New("����ʱ����Ϊ 1�C15 ��")
 	}
 	if c.IntervalSeconds < 3600 || c.IntervalSeconds > 604800 || c.HealthSeconds < 900 || c.HealthSeconds > 86400 || c.PolicySeconds < c.HealthSeconds*2+600 || c.PolicySeconds > 604800 || c.TTL < 5 || c.TTL > 300 || c.Improvement < 0.01 || c.Improvement > 1 || c.CooldownSeconds < 0 || c.CooldownSeconds > 86400 {
-		return errors.New("调度或切换参数超出范围")
+		return errors.New("���Ȼ��л�����������Χ")
 	}
 	if c.FeedSeconds < 3600 || c.FeedSeconds > 604800 {
-		return errors.New("规则同步间隔须为 1 小时至 7 天")
+		return errors.New("����ͬ�������Ϊ 1 Сʱ�� 7 ��")
 	}
 	if c.FeedURL != "" {
 		if err := validateFeedURL(c.FeedURL); err != nil {
@@ -142,30 +142,30 @@ func (c Config) Validate() error {
 		}
 	}
 	if _, e := time.LoadLocation(c.Timezone); e != nil {
-		return errors.New("时区无效")
+		return errors.New("ʱ����Ч")
 	}
 	if len(c.Rules) > 100 || len(c.RuleSource) == 0 || len(c.RuleVersion) == 0 || len(c.RuleSource) > 2000 || len(c.RuleVersion) > 100 {
-		return errors.New("规则数量或来源过长")
+		return errors.New("������������Դ����")
 	}
 	seen := map[string]bool{}
 	domains := map[string]bool{}
 	for _, r := range c.Rules {
 		if len(r.ID) < 1 || len(r.ID) > 64 || !DomainValid(r.Domain) || seen[r.ID] || domains[r.Domain] {
-			return errors.New("规则 ID／域名无效或重复")
+			return errors.New("���� ID��������Ч���ظ�")
 		}
 		for _, ch := range r.ID {
 			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') {
-				return errors.New("规则 ID 只能包含小写字母、数字和连字符")
+				return errors.New("���� ID ֻ�ܰ���Сд��ĸ�����ֺ����ַ�")
 			}
 		}
 		seen[r.ID] = true
 		domains[r.Domain] = true
 		if r.Platform != "Xbox" && r.Platform != "PlayStation" && r.Platform != "Switch" {
-			return errors.New("平台须为 Xbox、PlayStation 或 Switch")
+			return errors.New("ƽ̨��Ϊ Xbox��PlayStation �� Switch")
 		}
 		u, e := url.Parse(r.URL)
 		if e != nil || !(u.Scheme == "http" || u.Scheme == "https") || u.Hostname() != r.Domain || u.User != nil || u.Fragment != "" || u.Port() != "" && u.Port() != "80" && u.Port() != "443" {
-			return errors.New("测试 URL 须使用规则本身的域名及标准 HTTP(S) 端口")
+			return errors.New("���� URL ��ʹ�ù���������������׼ HTTP(S) �˿�")
 		}
 		// Restrict probes to download hosts, avoiding login, payment and arbitrary destinations.
 		allowed := false
@@ -174,22 +174,33 @@ func (c Config) Validate() error {
 				allowed = true
 			}
 		}
+		allowed = allowed || r.Platform == "Switch" && switch2ContentDomain(r.Domain)
 		if !allowed {
-			return errors.New("规则域名不在支持的三平台下载域名范围内")
+			return errors.New("������������֧�ֵ���ƽ̨����������Χ��")
 		}
 		if r.MinBytes < 1024 || r.MinBytes > 64<<20 || len(r.ExpectedPrefix) > 1024 {
-			return errors.New("内容检查参数无效")
+			return errors.New("���ݼ�������Ч")
 		}
 		if len(r.Candidates) > 64 {
-			return errors.New("每条规则最多 64 个手动候选")
+			return errors.New("ÿ��������� 64 ���ֶ���ѡ")
 		}
 		for _, ip := range r.Candidates {
 			if !PublicIP(ip) {
-				return errors.New("候选必须为公网 IPv4，不能使用内网或特殊地址")
+				return errors.New("��ѡ����Ϊ���� IPv4������ʹ�������������ַ")
 			}
 		}
 	}
 	return nil
+}
+
+// Preserve existing custom rules while admitting only known content hosts from
+// the new Switch 2 suffix. Admission does not establish sample availability.
+func switch2ContentDomain(domain string) bool {
+	switch domain {
+	case "atum.p01.lp1.d4c.srv.nintendo.net", "atumn.p01.lp1.d4c.srv.nintendo.net":
+		return true
+	}
+	return false
 }
 
 type Result struct {
