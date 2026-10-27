@@ -17,7 +17,7 @@ type EventRecord = { id: number; time: string; message: string };
 function useRecords<T>(path: string) {
   const [request, setRequest] = useState({
     page: 1,
-    size: 20,
+    size: 10,
     snapshot: 0,
     revision: 0,
   });
@@ -109,11 +109,11 @@ function Pager<T>({ records }: { records: ReturnType<typeof useRecords<T>> }) {
           每页{" "}
           <select
             id={id}
-            value={data?.page_size || 20}
+            value={data?.page_size || 10}
             disabled={busy}
             onChange={(e) => resize(Number(e.target.value))}
           >
-            {[20, 50, 100].map((n) => (
+            {[10, 20, 50, 100].map((n) => (
               <option key={n} value={n}>
                 {n} 条
               </option>
@@ -141,12 +141,6 @@ function Pager<T>({ records }: { records: ReturnType<typeof useRecords<T>> }) {
           </button>
         </div>
       </div>
-      {data && (
-        <p className="record-retention">
-          保留最近 {data.retention_days} 天，最多{" "}
-          {data.max_records.toLocaleString()} 条；较早记录自动清理。
-        </p>
-      )}
     </>
   );
 }
@@ -244,11 +238,10 @@ function Results({ filter }: { filter: string }) {
   );
 }
 
-function Events() {
+export function Events() {
   const records = useRecords<EventRecord>("history/events");
   return (
-    <section aria-label="运行与切换记录" aria-busy={records.busy}>
-      <h2 className="section-heading">运行与切换记录</h2>
+    <section aria-label="运行日志" aria-busy={records.busy}>
       <ul className="event-list">
         {records.data?.items.map((e) => (
           <li key={e.id}>
@@ -267,93 +260,43 @@ function Events() {
 
 export function HistoryRecords() {
   const [filter, setFilter] = useState("all");
+  const id = useId();
+  const filters = [
+    ["all", "全部探测"],
+    ["throughput", "吞吐测试"],
+    ["health", "健康检查"],
+    ["failed", "失败记录"],
+  ] as const;
   return (
     <>
-      <DailyRecords />
-      <div className="filter">
-        <label htmlFor="result-filter">显示</label>
-        <select
-          id="result-filter"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option value="all">全部探测</option>
-          <option value="throughput">吞吐测试</option>
-          <option value="health">健康检查</option>
-          <option value="failed">失败记录</option>
-        </select>
+      <div className="tabs" role="tablist" aria-label="测速记录筛选">
+        {filters.map(([value, label], index) => (
+          <button
+            key={value}
+            type="button"
+            id={`${id}-${value}`}
+            role="tab"
+            aria-selected={filter === value}
+            aria-controls={`${id}-panel`}
+            tabIndex={filter === value ? 0 : -1}
+            onClick={() => setFilter(value)}
+            onKeyDown={e => {
+              const next = e.key === "ArrowRight" ? (index + 1) % filters.length
+                : e.key === "ArrowLeft" ? (index + filters.length - 1) % filters.length
+                : e.key === "Home" ? 0 : e.key === "End" ? filters.length - 1 : -1;
+              if (next < 0) return;
+              e.preventDefault();
+              setFilter(filters[next][0]);
+              (e.currentTarget.parentElement?.children[next] as HTMLButtonElement)?.focus();
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <Results key={filter} filter={filter} />
-      <Events />
+      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-${filter}`} tabIndex={0}>
+        <Results key={filter} filter={filter} />
+      </div>
     </>
-  );
-}
-
-type Daily = {
-  day: string;
-  domain: string;
-  tests: number;
-  failures: number;
-  health_checks: number;
-  health_failures: number;
-  average_mbps: number;
-  peak_mbps: number;
-  bytes: number;
-  switches: number;
-};
-function DailyRecords() {
-  const records = useRecords<Daily>("history/daily");
-  return (
-    <section aria-label="每日汇总" aria-busy={records.busy}>
-      <h2 className="section-heading">每日汇总</h2>
-      <p className="muted">
-        按 UTC
-        日期汇总测试；明细清理后仍保留趋势。平均速度仅统计成功的完整测速窗口。
-      </p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>日期与域名</th>
-              <th>平均 / 最高速度</th>
-              <th>测速失败 / 总数</th>
-              <th>健康失败 / 总数</th>
-              <th>启用 / 切换次数</th>
-              <th>读取用量</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.data?.items.map((d) => (
-              <tr key={`${d.day}-${d.domain}`}>
-                <td>
-                  <strong>{d.day}</strong>
-                  <small>{d.domain}</small>
-                </td>
-                <td>
-                  {d.average_mbps.toFixed(1)} / {d.peak_mbps.toFixed(1)} Mbps
-                </td>
-                <td>
-                  {d.failures} / {d.tests}
-                </td>
-                <td>
-                  {d.health_failures} / {d.health_checks}
-                </td>
-                <td>{d.switches}</td>
-                <td>{bytes(d.bytes)}</td>
-              </tr>
-            ))}
-            {records.data?.items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty">
-                  暂无每日汇总，首次测试后开始记录。
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <Pager records={records} />
-      <h2 className="section-heading">测试明细</h2>
-    </section>
   );
 }

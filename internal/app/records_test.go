@@ -22,6 +22,15 @@ func TestRecordPagesFilterAndSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, endpoint := range []string{"queries", "history", "history/events", "history/daily"} {
+		for _, query := range []string{"", "?page_size=10"} {
+			var page Page[json.RawMessage]
+			resp := call(h, "GET", "/api/v1/"+endpoint+query, "", "", "")
+			if resp.Code != 200 || json.Unmarshal(resp.Body.Bytes(), &page) != nil || page.PageSize != 10 || page.Page != 1 || len(page.Items) != min(10, page.Total) {
+				t.Fatal("ten-record default", endpoint, query, resp.Body.String())
+			}
+		}
+	}
 	var first Page[Result]
 	resp := call(h, "GET", "/api/v1/history?page=1&page_size=20&filter=failed", "", "", "")
 	if resp.Code != 200 || json.Unmarshal(resp.Body.Bytes(), &first) != nil || first.Total != 21 || len(first.Items) != 20 || first.Pages != 2 {

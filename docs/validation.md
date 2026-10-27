@@ -3,7 +3,18 @@
 
 更新：2026-10-27。v0.2.0 下载代理完成以下软件与本地容器检查，未发布或升级既有部署。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。后文的 2026-10-20 DNS 基线与 NAS 部署记录只代表当时的版本。
 
-## v0.2.0 下载代理验证
+## 当前界面集成验证
+
+已集成 `preview/codespaces` 的 `0001116`：节点列表与新增弹窗、解析检查弹窗、独立运行日志、左下角版本入口及默认每页 10 条记录。下载代理和通用 SERVER_IP 部署保持可用；恢复默认、固定节点与每日汇总仍由 API 提供。
+
+- 全套 Go 竞态测试与 vet、前端生产构建及 2 项 Vitest 通过。
+- Chromium 对真实 Go／SQLite／DNS／HTTP 夹具检查六页与五种窗口尺寸；覆盖节点平台 Tab、Radix Select、新增时保留配置、解析弹窗、分页与记录 Tab、规则同步、代理启停／实际转发／复制及固定保存区。
+- 新增节点测试主动移除浏览器 randomUUID，确认普通 HTTP 缺少该 API 时仍可保存。规则 ID 沿用现有生成方式。
+- 默认／源码 Compose 与 Codespaces 预览 Compose 配置校验通过，linux/amd64 镜像构建及本地隔离双容器预览启动、策略同步通过。没有启动远端 Codespaces 或对真实主机做下载验收。
+
+本机集成证据在忽略的 `artifacts/merge-check/`，不随克隆提供。Windows 运行交叉编译的测试程序时，需要可用的 IANA 时区数据库；未安装 Go 的环境可将 ZONEINFO 指向 Go 的 `lib/time/zoneinfo.zip`。现有浏览器脚本覆盖上述交互，不以静态构建代替运行检查。
+
+## v0.2.0 下载代理基线验证
 
 | 项目 | 结果与范围 |
 | --- | --- |

@@ -125,11 +125,10 @@ export function ConsoleSetup({
             <Gamepad2 aria-hidden="true" />
             连接你的主机
           </h2>
-          <p>让主机和运行服务的设备连接同一局域网，选择一种接入方式。</p>
         </div>
         <NavLink className="button" to={mode === "dns" ? "/connection" : "/settings"}>
           <Network aria-hidden="true" />
-          {mode === "dns" ? "检查接入" : "代理设置"}
+          {mode === "dns" ? "解析历史" : "代理设置"}
         </NavLink>
       </div>
       <div className="setup-grid">
@@ -175,9 +174,11 @@ export function ConsoleSetup({
                   复制
                 </button>
               </div>
-              <p className="copy-feedback" role="status" aria-live="polite">
-                {feedback || "仅填写 IP 地址，不加 http:// 或端口。"}
-              </p>
+              {feedback && (
+                <p className="copy-feedback" role="status" aria-live="polite">
+                  {feedback}
+                </p>
+              )}
             </>
           ) : (
             <p className="setup-warning" role="status">
@@ -227,10 +228,7 @@ export function ConsoleSetup({
               </p>
             </details>
           ) : (
-            <p className="muted">
-              使用优选节点不需要再修改主机
-              DNS。普通目标正常转发，代理不会自动接管未配置设备的流量。
-            </p>
+            <p className="setup-warning">关闭代理或停止服务前，请先将主机代理设置改为不使用。</p>
           )}
           {mode === "dns" && !connected && (
             <p className="setup-warning">
@@ -316,20 +314,6 @@ export function ConsoleSetup({
             </div>
           </div>
         </div>
-      </div>
-      <div className="setup-footer">
-        <p>
-          {mode === "dns"
-            ? "保存后，在“接入检查”确认出现主机或路由器的查询。"
-            : "开始下载后，查看首页的转发数量与累计下行流量，确认流量经过代理。"}
-          网络测试通过不代表游戏下载已提速。
-        </p>
-        <p>
-          {mode === "dns"
-            ? "服务停机或无法联网时，将主机 DNS 改回自动并重新测试。"
-            : "代理关闭或服务停机前，将主机代理设置改为不使用，再测试网络连接。"}
-          菜单名称可能随系统语言和版本变化。
-        </p>
       </div>
     </section>
   );

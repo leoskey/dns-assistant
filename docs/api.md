@@ -32,7 +32,7 @@
 
 代理是 controller 的独立 TCP 8082 入口，不受管理 API 的 Host／Origin／自定义头约束，但使用相同的 `allowed_cidrs` 来源限制及公网目标检查。HTTP 只允许绝对 http URL 与端口 80，CONNECT 只允许 443；其他目标按 400 拒绝，非允许来源 403，禁用或并发已满 503，无法连接目标 502。关闭开关拒绝新请求，旧传输持续至结束；停止进程会关闭隧道。接入和转发边界见 [下载代理](download-proxy.md)。
 
-四个记录接口统一接受 `page`（默认 1）、`page_size`（20／50／100，默认 20）和 `snapshot`（非负记录 ID，默认 0）。返回 `items`、`page`、`page_size`、`total`、`pages`、`snapshot`、`retention_days`、`max_records`；空列表为第 1／1 页。翻页携带首次响应的 snapshot，排除后续新增记录；过期清理可能减少页数，请求超过末页时返回当前末页。刷新最新时省略 snapshot 或传 0。分页与筛选参数无效返回 400，读取失败返回 500。
+四个记录接口统一接受 `page`（默认 1）、`page_size`（10／20／50／100，默认 10）和 `snapshot`（非负记录 ID，默认 0）。返回 `items`、`page`、`page_size`、`total`、`pages`、`snapshot`、`retention_days`、`max_records`；空列表为第 1／1 页。翻页携带首次响应的 snapshot，排除后续新增记录；过期清理可能减少页数，请求超过末页时返回当前末页。刷新最新时省略 snapshot 或传 0。分页与筛选参数无效返回 400，读取失败返回 500。
 
 查询记录来自 DNS 核心实际观察到的请求，保存到 controller 的数据库，重启后继续保留；`client` 为核心观察到的来源，路由器转发可能合并来源，不推断主机身份。DNS 观察队列有界，负载或管理故障时可能丢弃观察记录，不以日志完整性阻塞解析。
 

@@ -55,8 +55,8 @@ async function poll(fn, message, timeout = 15000) {
         reject(new Error("fixture exited: " + code + "\n" + log));
       });
     });
-    const read = async (route) => {
-      const r = await fetch(base + "/api/v1/" + route);
+    const request = async (route, payload, method = payload === undefined ? "GET" : "POST") => {
+      const r = await fetch(base + "/api/v1/" + route, { method, headers: payload === undefined ? {} : { "Content-Type": "application/json", "X-DNS-Request": "1" }, body: payload === undefined ? undefined : JSON.stringify(payload) });
       const body = await r.json();
       assert(r.ok, JSON.stringify(body));
       return body;
@@ -67,7 +67,7 @@ async function poll(fn, message, timeout = 15000) {
     };
     const active = (s) => !!s.ip && Date.parse(s.valid_until) > Date.now();
     await poll(async () => {
-      const s = await read("status");
+      const s = await request("status");
       return (
         s.selections.filter(active).length === 2 &&
         !s.tasks.some((t) => t.state === "running" || t.state === "queued")
@@ -89,14 +89,14 @@ async function poll(fn, message, timeout = 15000) {
     await page.goto(base + "/platforms");
     const row = () => page.locator(".platform-table tbody > tr").first();
     await poll(async () => {
-      const s = await read("status");
+      const s = await request("status");
       return (
         s.selections.filter(active).length === 2 &&
         s.version === s.applied_version &&
         !s.tasks.some((t) => t.state === "running" || t.state === "queued")
       );
     }, "retest not applied");
-    await row().getByText("优选使用中", { exact: true }).waitFor();
+    await row().getByText("健康", { exact: true }).waitFor();
     const tabs = page.getByRole("tablist", { name: "游戏平台" });
     await tabs.getByRole("tab", { name: "全部", exact: true }).focus();
     for (const [key, name] of [
@@ -114,74 +114,69 @@ async function poll(fn, message, timeout = 15000) {
       );
     }
     assert.equal(await page.getByText("IPv6", { exact: true }).count(), 0);
-    await row().getByRole("button", { name: "详情", exact: true }).click();
-    await page.getByText("高级操作：固定节点", { exact: true }).click();
-    await page.getByLabel("公网 IPv4", { exact: true }).fill("1.1.1.1");
-    await page.getByRole("button", { name: "验证并固定", exact: true }).click();
+    const initial = await request("status");
+    const id = initial.rules[0].id;
+    await request("probe", { rule_id: id, ip: "1.1.1.1" });
     await poll(async () => {
-      const s = await read("status");
-      return (
-        s.selections.some((v) => v.fixed && active(v)) &&
-        s.version === s.applied_version
-      );
-    }, "verified pin did not apply");
-    await row().getByText("固定节点", { exact: true }).waitFor();
-    await row().getByRole("button", { name: "详情", exact: true }).click();
+      const state = await request("status");
+      return state.selections.some(selection => selection.fixed && active(selection)) && state.version === state.applied_version;
+    }, "API pin did not apply");
     await fixture("sync-off");
-    await row().getByRole("button", { name: "恢复默认", exact: true }).click();
-    await row().getByText("策略同步中", { exact: true }).waitFor();
-    assert.match(await row().innerText(), /等待同步/);
+    await request("default", { rule_id: id });
+    await poll(async () => { const state = await request("status"); return state.version !== state.applied_version; }, "sync failure was not retained");
+    await row().getByText("默认解析", { exact: true }).waitFor();
     await fixture("sync-on");
-    await row().getByText("默认使用中", { exact: true }).waitFor();
-    let status = await read("status");
-    const id = status.rules[0].id;
-    assert(!status.selections.find((s) => s.rule_id === id && active(s)));
-    await row().getByRole("button", { name: "立即复测", exact: true }).click();
+    await poll(async () => { const state = await request("status"); return state.version === state.applied_version; }, "default did not synchronize");
+    assert(!(await request("status")).selections.some(selection => selection.rule_id === id && active(selection)));
+    await row().getByRole("button", { name: "测速", exact: true }).click();
     await poll(async () => {
-      const s = await read("status");
+      const s = await request("status");
       return (
         s.selections.filter(active).length === 2 &&
         s.version === s.applied_version &&
         !s.tasks.some((t) => t.state === "running" || t.state === "queued")
       );
     }, "retest not applied");
-    await row().getByText("优选使用中", { exact: true }).waitFor();
+    await row().getByText("健康", { exact: true }).waitFor();
     await fixture("fail-health");
     await poll(
       async () =>
-        !(await read("status")).selections.some(
+        !(await request("status")).selections.some(
           (s) => s.rule_id === id && active(s),
         ),
       "health failure did not restore default",
     );
     await poll(
       async () =>
-        (await read("status")).tasks.some(
+        (await request("status")).tasks.some(
           (t) => t.rule_id === id && t.state === "error",
         ),
       "failed recovery did not settle",
     );
     await fixture("recover");
-    await row().getByRole("button", { name: "立即复测", exact: true }).click();
+    await row().getByRole("button", { name: "测速", exact: true }).click();
     await poll(async () => {
-      const s = await read("status");
+      const s = await request("status");
       return (
         s.selections.filter(active).length === 2 &&
         s.version === s.applied_version &&
         !s.tasks.some((t) => t.state === "running" || t.state === "queued")
       );
     }, "retest not applied");
-    await row().getByText("优选使用中", { exact: true }).waitFor();
+    await row().getByText("健康", { exact: true }).waitFor();
     await page.screenshot({ path: path.join(output, "platforms-desktop.png") });
-    await page.getByRole("link", { name: "接入检查", exact: true }).click();
+    await page.getByRole("link", { name: "解析历史", exact: true }).click();
     assert.equal(await page.locator("#query-type").count(), 0);
+    await page.getByRole("button", { name: "检查实际 DNS 应答", exact: true }).click();
     await page.getByRole("button", { name: "检查解析", exact: true }).click();
     await page
       .locator(".check-result")
       .getByText(/NOERROR/)
       .waitFor();
     assert.match(await page.locator(".check-result").innerText(), /1\.1\.1\.1/);
+    await page.getByRole("dialog").getByRole("button", { name: "关闭弹窗", exact: true }).click();
     const queries = page.getByRole("region", { name: "查询记录" });
+    assert.equal(await queries.getByLabel("每页").inputValue(), "10");
     await queries.getByRole("button", { name: "下一页", exact: true }).click();
     await queries.getByText(/第 2 \/ /).waitFor();
     await queries
@@ -190,12 +185,13 @@ async function poll(fn, message, timeout = 15000) {
     await queries.getByLabel("每页").selectOption("50");
     await queries.getByText(/第 1 \/ 1 页/).waitFor();
     await page.getByRole("link", { name: "测速记录", exact: true }).click();
-    await page
-      .getByRole("region", { name: "每日汇总" })
-      .locator("tbody tr")
-      .first()
-      .waitFor();
-    await page.getByLabel("显示", { exact: true }).selectOption("failed");
+    assert((await request("history/daily")).items.length > 0, "daily summary API must remain available");
+    const recordTabs = page.getByRole("tablist", { name: "测速记录筛选" });
+    await recordTabs.getByRole("tab", { name: "全部探测", exact: true }).press("End");
+    assert.equal(
+      await recordTabs.getByRole("tab", { name: "失败记录", exact: true }).getAttribute("aria-selected"),
+      "true",
+    );
     const results = page.getByRole("region", { name: "测速结果" });
     await poll(
       async () =>
@@ -207,13 +203,13 @@ async function poll(fn, message, timeout = 15000) {
     await page.getByRole("link", { name: "设置", exact: true }).click();
     const save = page.getByRole("button", { name: "保存设置", exact: true });
     await save.waitFor();
-    const appVersion = (await read("status")).app_version;
+    const appVersion = (await request("status")).app_version;
     assert(appVersion, "application version missing from status");
     assert(
       (await page.getByTestId("app-version").innerText()).includes(
-        `当前版本 v${appVersion}`,
+        `v${appVersion}`,
       ),
-      "settings must display the running backend version",
+      "sidebar footer must display the running backend version",
     );
     assert(await save.isDisabled());
     const proxyToggle = page.getByLabel("启用下载代理", { exact: true });
@@ -238,7 +234,7 @@ async function poll(fn, message, timeout = 15000) {
       request.end();
     });
     assert.deepEqual(await proxyRequest(), { status: 200, body: "proxy-browser-fixture" });
-    assert((await read("status")).proxy.downloaded_bytes > 0);
+    assert((await request("status")).proxy.downloaded_bytes > 0);
     await page.getByRole("link", { name: "网络总览", exact: true }).click();
     await page.getByLabel("接入方式", { exact: true }).selectOption("proxy");
     const setup = page.locator(".console-setup");
@@ -289,24 +285,33 @@ async function poll(fn, message, timeout = 15000) {
       .locator(".settings-section .error")
       .filter({ hasText: "继续使用上次可用规则" })
       .waitFor();
-    assert.notEqual((await read("config")).rule_version, "bad");
+    assert.notEqual((await request("config")).rule_version, "bad");
     await feedInput.fill("https://rules.example.com/table.json");
     await save.click();
     await poll(() => save.isDisabled(), "valid URL not saved");
     await page.getByRole("button", { name: "立即同步", exact: true }).click();
     await page.getByText("规则表已同步", { exact: true }).waitFor();
-    assert.equal((await read("config")).rule_version, "browser-v2");
-    await page
-      .getByRole("button", { name: "添加下载规则", exact: true })
-      .click();
-    await page
-      .getByLabel("测试下载地址", { exact: true })
-      .fill("http://xvcf2.xboxlive.com/large.bin");
-    await save.click();
-    await poll(() => save.isDisabled(), "new rule save failed");
-    const saved = await read("config");
+    assert.equal((await request("config")).rule_version, "browser-v2");
+    await page.getByRole("link", { name: "节点列表", exact: true }).click();
+    await page.evaluate(() => Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true }));
+    await page.getByRole("tab", { name: "PlayStation", exact: true }).click();
+    await page.getByRole("button", { name: "添加节点", exact: true }).click();
+    const addDialog = page.getByRole("dialog", { name: "添加节点", exact: true });
+    const platformChoice = addDialog.getByRole("combobox", { name: "平台", exact: true });
+    assert((await platformChoice.innerText()).includes("PlayStation"));
+    await platformChoice.click();
+    await page.getByRole("option", { name: "Xbox", exact: true }).click();
+    await addDialog.getByLabel("测试下载 URL", { exact: true }).fill("http://xvcf2.xboxlive.com/large.bin");
+    await addDialog.getByRole("button", { name: "保存", exact: true }).click();
+    await addDialog.waitFor({ state: "hidden" });
+    const saved = await request("config");
     assert.equal(saved.rules.length, 3);
     assert.equal(saved.rules[0].candidates[0], "1.1.1.1");
+    assert.equal(saved.rules[2].platform, "Xbox");
+    await page.getByRole("tab", { name: "Xbox", exact: true }).click();
+    await page.getByText("xvcf2.xboxlive.com", { exact: true }).waitFor();
+    await page.getByRole("link", { name: "设置", exact: true }).click();
+    await save.waitFor();
     for (const [width, height] of [
       [1280, 800],
       [1024, 320],
@@ -358,9 +363,10 @@ async function poll(fn, message, timeout = 15000) {
       });
       for (const [name, url] of [
         ["网络总览", "/"],
-        ["平台选优", "/platforms"],
-        ["接入检查", "/connection"],
+        ["节点列表", "/platforms"],
+        ["解析历史", "/connection"],
         ["测速记录", "/history"],
+        ["运行日志", "/events"],
       ]) {
         await page.getByRole("link", { name, exact: true }).click();
         await page.waitForTimeout(100);
@@ -381,20 +387,20 @@ async function poll(fn, message, timeout = 15000) {
       backend: "real Go/SQLite/DNS/HTTP fixtures",
       checks: [
         "automatic selection",
-        "verified advanced pin",
+        "API pin/default regression reflected in node list",
         "platform tab arrow/Home/End keyboard interaction",
         "sync failure shows pending before actual default applies",
         "restore default and retest",
         "health failure fallback and recovery",
         "actual DNS check",
         "record pagination and server filter",
-        "daily summary",
-        "settings shows the running backend application version",
+        "daily summary API retained",
+        "sidebar footer shows the running backend application version",
         "proxy enable/reload, actual forwarded bytes, platform guides/copy and disable",
         "real validation failure and save retry",
         "bad feed preserves last good / valid feed applies",
-        "simple rule add and advanced field preservation",
-        "five pages and five viewport sizes; fixed save dock",
+        "node modal with Radix platform selection, filtered defaults and field preservation",
+        "six pages and five viewport sizes; fixed save dock",
       ],
     };
     fs.writeFileSync(

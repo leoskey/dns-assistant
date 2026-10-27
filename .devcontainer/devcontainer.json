@@ -1,0 +1,9 @@
+{
+  "name": "DNS Assistant full preview",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {"ghcr.io/devcontainers/features/docker-in-docker:2": {}},
+  "forwardPorts": [8088],
+  "portsAttributes": {"8088": {"label": "DNS Assistant", "onAutoForward": "openBrowser", "visibility": "private", "protocol": "http"}},
+  "postCreateCommand": "bash .devcontainer/start-preview.sh",
+  "postStartCommand": "bash .devcontainer/start-preview.sh"
+}
