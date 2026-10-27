@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" fill="none">
+  <defs>
+    <linearGradient id="body" x1="1010" y1="0" x2="430" y2="900" gradientUnits="userSpaceOnUse"><stop stop-color="#111113"/><stop offset=".28" stop-color="#641723"/><stop offset=".55" stop-color="#e5484d"/><stop offset=".77" stop-color="#641723"/><stop offset="1" stop-color="#111113"/></linearGradient>
+    <linearGradient id="edge" x1="980" y1="40" x2="400" y2="850" gradientUnits="userSpaceOnUse"><stop stop-color="#e5484d" stop-opacity="0"/><stop offset=".36" stop-color="#ff9592"/><stop offset=".62" stop-color="#e5484d"/><stop offset="1" stop-color="#e5484d" stop-opacity="0"/></linearGradient>
+    <linearGradient id="shade" x1="500" y1="300" x2="1000" y2="600" gradientUnits="userSpaceOnUse"><stop stop-color="#111113" stop-opacity=".9"/><stop offset=".5" stop-color="#111113" stop-opacity="0"/><stop offset="1" stop-color="#111113" stop-opacity=".7"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"/></filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="1.2"/></filter>
+    <path id="ribbon" d="M1100-180C1020 20 870 120 915 265S690 350 700 500 460 640 390 1050"/>
+  </defs>
+  <g stroke="#e5484d" stroke-width="85" opacity=".25" filter="url(#glow)"><use href="#ribbon"/><use href="#ribbon" transform="translate(-140 0)"/><use href="#ribbon" transform="translate(140 0)"/></g>
+  <g stroke-linecap="round"><g stroke="#111113" stroke-width="136"><use href="#ribbon"/><use href="#ribbon" transform="translate(-140 0)"/><use href="#ribbon" transform="translate(140 0)"/></g><g stroke="url(#body)" stroke-width="100"><use href="#ribbon"/><use href="#ribbon" transform="translate(-140 0)"/><use href="#ribbon" transform="translate(140 0)"/></g><g stroke="url(#shade)" stroke-width="78"><use href="#ribbon" transform="translate(-8 0)"/><use href="#ribbon" transform="translate(-148 0)"/><use href="#ribbon" transform="translate(132 0)"/></g><g stroke="url(#edge)" stroke-width="2.5" filter="url(#soft)"><use href="#ribbon" transform="translate(-50 0)"/><use href="#ribbon" transform="translate(-190 0)"/><use href="#ribbon" transform="translate(90 0)"/></g></g>
+</svg>

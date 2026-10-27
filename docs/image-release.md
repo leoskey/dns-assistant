@@ -14,12 +14,12 @@
 
 1. 构建 React、运行 Vitest、Go `-race` 全套测试及 vet。
 2. 使用 Buildx 与 QEMU 构建 `linux/amd64`、`linux/arm64`，发布同一个多架构 manifest。
-3. 检查 manifest 的两种架构，分别以对应平台运行 `config` 和 `version` 命令，核对二进制可执行、版本与源码提交一致；模拟运行不等于 ARM NAS 或真实游戏主机验收。
+3. 检查 manifest 的两种架构，分别以对应平台运行 `config` 和 `version` 命令，核对二进制可执行、版本与源码提交一致；模拟运行不等于 ARM 服务主机或真实游戏主机验收。
 4. Actions 摘要保存镜像 digest；源码标签、revision 与构建来源信息用于追溯。
 
-默认只有 `contents: read`；发布任务额外授予 `packages: write`，登录使用本次运行的 `GITHUB_TOKEN`，不需要 PAT 或 NAS 密钥。第三方 Actions 固定到提交 SHA。PR 不运行发布任务，也不登录 registry。
+默认只有 `contents: read`；发布任务额外授予 `packages: write`，登录使用本次运行的 `GITHUB_TOKEN`，不需要 PAT 或服务主机密钥。第三方 Actions 固定到提交 SHA。PR 不运行发布任务，也不登录 registry。
 
-main 的新运行会取消同一分支的旧运行，版本标签的发布不被该策略取消。若发布后的校验失败，该次运行标记失败，先修复并重新发布，通过前不要据此升级 NAS。
+main 的新运行会取消同一分支的旧运行，版本标签的发布不被该策略取消。若发布后的校验失败，该次运行标记失败，先修复并重新发布，通过前不要据此升级服务主机。
 
 ## 标签与版本
 
@@ -55,7 +55,7 @@ docker pull ghcr.io/leoskey/dns-assistant:latest
 
 检查平台列表包含 `linux/amd64` 与 `linux/arm64`；构建来源证明可能增加 `unknown/unknown` 条目，不属于额外运行架构。无凭据拉取成功才算匿名部署验证通过。
 
-## NAS 拉取加速与升级
+## 镜像拉取与升级
 
 中国大陆家宽访问 GHCR 缓慢时，可检查 [南京大学镜像站](https://mirror.nju.edu.cn/) 的 GHCR 缓存入口是否可用。发布仍在 ghcr.io；缓存拉取路径为 `ghcr.nju.edu.cn`，其后仓库路径和标签保持一致。使用前核对目标版本的可达性、摘要与平台列表，不承诺固定下载速度。
 
@@ -65,14 +65,14 @@ docker pull ghcr.io/leoskey/dns-assistant:latest
 DNS_ASSISTANT_IMAGE=ghcr.nju.edu.cn/leoskey/dns-assistant:latest
 ```
 
-然后在 NAS 上直接执行：
+然后在服务主机上直接执行：
 
 ```sh
 docker compose pull
 docker compose up -d --wait
 ```
 
-自定义 Compose 若直接填写镜像地址，须同步替换两个服务的 image；保留环境文件、`env_file` 引用、项目名称及两个数据卷，并移除阻止网络拉取的 `pull_policy: never`。通过 NAS 图形界面维护时，先完成镜像下载，再按该系统的 Compose 重建操作更新服务；重建期间会有短暂 DNS 中断。
+自定义 Compose 若直接填写镜像地址，须同步替换两个服务的 image；保留环境文件、`env_file` 引用、项目名称及两个数据卷，并移除阻止网络拉取的 `pull_policy: never`。通过服务主机图形界面维护时，先完成镜像下载，再按该系统的 Compose 重建操作更新服务；重建期间会有短暂 DNS 中断。
 
 部分图形界面可能不支持完整的 `@sha256:...` 地址；遇到解析失败时，可使用已发布的版本／提交标签，或改用 Docker CLI／Compose 指定经核对的 digest。
 
@@ -89,7 +89,7 @@ Docker Hub 的 `registry-mirrors` 不会重定向 GHCR，因此本方案按项�
 
 如果所选拉取入口暂时不可用，已运行容器继续使用本地镜像。可在维护时切回 ghcr.io 对应版本，或从可连通 GHCR 的电脑导出目标架构镜像后导入；记录来源 digest 和文件校验值，继续保留密钥与数据卷。
 
-## NAS 升级与源码构建
+## 升级与源码构建
 
 按 [部署说明](deployment.md) 操作。单独使用 `compose.yaml` 时拉取 `DNS_ASSISTANT_IMAGE`；README 的源码部署同时使用 `compose.build.yaml`，显式覆盖两个服务为本地构建。两种方式共享端口、密钥与卷定义，维护命令须保持所选方式一致。
 
