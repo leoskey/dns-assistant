@@ -85,7 +85,7 @@ docker compose -f compose.yaml -f compose.build.yaml ps
 - **仅优选公网 IPv4。** 启用规则的域名 AAAA 返回 NODATA，其他域名 AAAA 保持上游语义。HTTPS／SVCB 地址提示可能影响客户端选址；要求端到端 DNSSEC 的 A 查询保留原始上游应答。
 - **用途为下载节点选择。** 不提供 Xbox 国际地址转国内地址的 HTTP 跳转、下载代理或对战网络加速。
 
-本版已完成自动化、Linux/amd64 容器及 amd64 NAS 运行检查；Linux/arm64 已完成编译检查。三平台真实主机下载收益和 NAS 宿主机重启仍需实测，详见 [验证记录](docs/validation.md)。
+既有验证覆盖自动化、Linux/amd64 容器及 amd64 部署运行；Linux/arm64 在选优重构后仅完成编译检查。三平台真实主机下载收益、ARM NAS 运行和宿主机重启仍待实测。验证结论不表示任一设备当前已升级，范围与复现方法见 [验证记录](docs/validation.md)。
 
 ## 维护与文档
 

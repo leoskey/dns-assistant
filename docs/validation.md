@@ -1,7 +1,6 @@
 # 当前版本验证记录
 
-
-更新：2026-10-20。实施、本地软件检查和 amd64 fnOS NAS 部署检查完成；NAS 已运行 2026.10.20-optimization-r2。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。
+验证批次：2026-10-20 的选优重构。文档整理：2026-10-28。下列为既有验证结论，不表示整理时重新运行过测试，也不声明具体设备的当前版本。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。
 
 ## 已执行的检查
 
@@ -42,16 +41,17 @@ go build ./cmd/dns-assistant
 
 浏览器检查脚本为 [scripts/browser-check.cjs](../scripts/browser-check.cjs)，配套夹具在 [browser_test.go](../internal/app/browser_test.go)。先执行 `go test -c -o ../work/app.test.exe ./internal/app`（其他系统可不使用 .exe 后缀），然后设置 APP_TEST_BINARY 为该文件的绝对路径、PLAYWRIGHT_MODULE 为可用 Playwright 模块路径、CHROME_PATH 为 Chromium/Chrome 可执行文件路径、BROWSER_OUTPUT_DIR 为证据目录，再运行 `node scripts/browser-check.cjs`。脚本只启动测试二进制；夹具接口不包含在生产程序中。
 
-## NAS 部署验证
+## amd64 部署验证结论
 
-- 现有 fnOS amd64 项目采用离线镜像 `dns-assistant:2026.10.20-optimization-r2`，保留原项目名、SERVICE_TOKEN、settings.env、端口和两个命名卷。两服务使用 pull_policy: never，日志轮换为 10 MiB × 3。
-- 在停止两个原服务后，以只读方式挂载两个数据卷归档；备份原 Compose/env，归档可读性校验通过，SHA256SUMS 和 COMPLETE 已生成。备份位于原项目的 `backups/pre-optimization-20261020/`。一次性备份容器已退出且不自动重启；原镜像保留。
-- NAS 管理健康、DNS 核心连接与策略版本同步通过；13 条原规则完全一致，300 条升级前历史抽样逐条保留。查询、测速、事件、每日汇总分页及保留上限通过。
-- 从局域网电脑对 NAS 53 端口执行 16 项实际查询：UDP/TCP × 普通域名及三平台样本 × A/AAAA。所有应答成功；目标 AAAA 为 NODATA，普通域名 AAAA 正常转发。
-- 最终镜像重建后，所有最近复测和下次计划与重建前完全一致，没有重复触发已完成测试。浏览器核对新总览文案、平台当前节点与下一日计划、记录第二页、设置固定保存区；页面使用 `index-r3V6soWC.js` 和 `index-D90uMuq3.css`。
+- 升级前完整数据卷归档的可读性校验通过；升级后配置一致、历史抽样保留，管理健康、DNS 核心连接与策略版本同步正常。
+- 局域网 IPv4 上的 UDP／TCP 查询覆盖普通域名与三平台样本的 A／AAAA，应答符合规格：目标 AAAA 为 NODATA，普通域名 AAAA 正常转发。
+- 容器重建后最近复测与下次计划保留，没有重复触发已完成测试；查询、测速、事件和每日汇总分页及保留上限通过。
+- 浏览器核对总览、当前节点与下次计划、记录翻页和固定保存区通过。
+
+上述结论仅覆盖既有 amd64 部署检查。设备标识、运行配置、业务数据、镜像包标识、备份位置及原始日志／截图不随仓库提供。目标环境按 [部署说明](deployment.md) 与 [空白验收模板](field-validation-template.md) 复验，填写后的记录保存在仓库外。
 
 ## 验收边界
 
-本轮镜像已离线部署 NAS，源码尚未推送，未触发 CI 或上传公共镜像仓库；GHCR latest 仍不包含本轮改动。Linux/arm64 仅完成编译，未做 ARM NAS 运行验收。合成夹具的 SQLite integrity_check 已通过；NAS 现场验证使用真实 API/DNS 和历史抽样，未直接对生产 SQLite 执行 integrity_check。三平台真实主机下载收益与 NAS 宿主机重启仍需设备验收。本地夹具截图使用测试数值；NAS 实际截图使用 NAS 测速数值，两者均不代表主机实时下载速度。
+Linux/arm64 在该验证批次仅完成编译，未做 ARM NAS 运行验收；重构前的模拟运行不扩大本批次的覆盖范围。合成夹具的 SQLite integrity_check 已通过，部署验证未直接对生产数据库执行该检查。三平台真实主机下载收益、晚高峰、休眠唤醒与 NAS 宿主机重启仍待实测；服务端测速和本地测试数据均不能代表主机实时下载速度。
 
-[重构前的 NAS 与 CI 记录](history/pre-optimization-validation.md) 仅为历史证据。退役的预算、双地址族选优、两轮切换与备用激活不再作为当前标准。
+源码、公开镜像与设备版本分别核对，不通过历史部署记录判断 `latest` 是否包含某项改动；发布检查方法见 [镜像维护](image-release.md)。[重构前验证摘要](history/pre-optimization-validation.md) 仅为历史证据。退役的预算、双地址族选优、两轮切换与备用激活不再作为当前标准。

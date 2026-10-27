@@ -1,6 +1,6 @@
 # NAS 部署检查与故障处理
 
-更新：2026-10-20。执行 [README](../README.md) 中的 Compose 步骤。以下检查不修改路由器、防火墙或现有 DNS。
+更新：2026-10-28。本文提供通用部署与维护步骤；验证范围见 [验证记录](validation.md)。以下检查不修改路由器、防火墙或现有 DNS。
 
 ## 安装前
 
@@ -10,14 +10,14 @@
 4. Docker named volumes 位于 NAS 本地存储，不使用 NFS／SMB 作为 SQLite WAL 数据目录。
 5. 镜像运行 UID/GID 为 10001:10001。默认新命名卷继承镜像 /data 的所有权；若替换成 bind mount，预先给目录匹配的读写权限，勿把整个 NAS 目录授权给容器。
 6. 运行 keygen 生成随机服务密钥，两个容器使用同一值；保留 .env，不提交到 Git。
-7. `docker compose config --quiet` 通过后启动，`docker compose ps` 应显示两个 healthy。
+7. 按选定部署方式执行 Compose 配置校验并启动，两个服务均应显示 healthy。
 8. Compose 对外仅发布 IPv4 端口，NAS_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
-默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取统一双架构镜像，Docker 自动匹配 amd64／arm64；无需在 NAS 编译源码。可用 `DNS_ASSISTANT_IMAGE` 固定版本或摘要。源码构建使用 `-f compose.yaml -f compose.build.yaml`，之后的启动／重启等命令保持同一组覆盖文件。
+单独使用 `compose.yaml` 时，默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取发布镜像，Docker 按 manifest 匹配 amd64／arm64；可用 `DNS_ASSISTANT_IMAGE` 固定已发布版本或摘要。部署前核对目标发布的版本、提交与架构，源码更新不代表镜像已更新。[README](../README.md) 的快速部署采用源码构建，使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
 
-中国大陆访问 GHCR 缓慢时，可将 DNS_ASSISTANT_IMAGE 设为 `ghcr.nju.edu.cn/leoskey/dns-assistant:latest`，再直接 pull 与 up。现有 fnOS NAS 已验证该 GHCR 缓存路径，具体操作、摘要核对与回退方式见 [NAS 拉取加速与升级](image-release.md#nas-拉取加速与升级)。
+中国大陆访问 GHCR 缓慢时，可按 [NAS 拉取加速与升级](image-release.md#nas-拉取加速与升级) 检查缓存入口的可达性与摘要，再选择拉取路径。
 
-更新时保留原项目名称、服务密钥和两个卷，执行 `docker compose pull`、`docker compose up -d --wait`。已有 fnOS 部署使用 `settings.env` 时保留其 `env_file`，仅替换两个服务的 image，并移除旧的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
+更新时保留原项目名称、环境文件、服务密钥和两个数据卷。镜像部署执行 `docker compose pull`、`docker compose up -d --wait`；源码部署按 README 使用两个 `-f` 参数重新 build 与 up。自定义 Compose 使用 `env_file` 时保留其引用；由离线镜像转为网络拉取时，移除阻止拉取的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
 
 ## 接入
 
@@ -46,6 +46,6 @@
 | 数据卷不可写 | 检查 UID/GID 和本地文件系统；修复后重启，避免使用 privileged 绕过 |
 | 停止或升级 NAS | 先确认其他解析路径或把主机 DNS 改回自动；升级前导出配置并保留两个数据卷 |
 
-## 实机记录
+## 实机验收
 
-按 [验收矩阵](acceptance.md) 填写 NAS 型号／系统／架构、家宽运营商、路由模式、主机型号、IPv4 接入、测试内容、时段、默认 DNS／优选 DNS 多轮完成时间与失败次数。Docker Desktop 通过不能代替该记录。
+按 [验收矩阵](acceptance.md) 和 [空白模板](field-validation-template.md) 检查目标环境、IPv4 接入、重启恢复及真实下载对比。填写后的设备信息、地址、查询记录、日志与截图保存在仓库外；仓库仅保留脱敏的验证范围、结论和未验证项。Docker Desktop 通过不能代替目标设备验收。
