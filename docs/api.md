@@ -28,7 +28,7 @@
 
 状态接口的 `dns_address` 来自部署环境 `NAS_IP`，仅返回有效的非环回单播 IPv4；缺失或无效时返回空字符串。该地址用于主机手动 DNS 指引，不从请求 Host、浏览器域名或容器网卡推断，也不表示主机已实际接入。默认 Compose 发布 TCP／UDP 53；管理员更改端口后须自行确认主机支持。
 
-四个记录接口统一接受 `page`（默认 1）、`page_size`（20／50／100，默认 20）和 `snapshot`（非负记录 ID，默认 0）。返回 `items`、`page`、`page_size`、`total`、`pages`、`snapshot`、`retention_days`、`max_records`；空列表为第 1／1 页。翻页携带首次响应的 snapshot，排除后续新增记录；过期清理可能减少页数，请求超过末页时返回当前末页。刷新最新时省略 snapshot 或传 0。分页与筛选参数无效返回 400，读取失败返回 500。
+四个记录接口统一接受 `page`（默认 1）、`page_size`（10／20／50／100，默认 10）和 `snapshot`（非负记录 ID，默认 0）。返回 `items`、`page`、`page_size`、`total`、`pages`、`snapshot`、`retention_days`、`max_records`；空列表为第 1／1 页。翻页携带首次响应的 snapshot，排除后续新增记录；过期清理可能减少页数，请求超过末页时返回当前末页。刷新最新时省略 snapshot 或传 0。分页与筛选参数无效返回 400，读取失败返回 500。
 
 查询记录来自 DNS 核心实际观察到的请求，保存到 controller 的数据库，重启后继续保留；`client` 为核心观察到的来源，路由器转发可能合并来源，不推断主机身份。DNS 观察队列有界，负载或管理故障时可能丢弃观察记录，不以日志完整性阻塞解析。
 

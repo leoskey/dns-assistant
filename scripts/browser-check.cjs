@@ -180,6 +180,7 @@ async function poll(fn, message, timeout = 15000) {
       .waitFor();
     assert.match(await page.locator(".check-result").innerText(), /1\.1\.1\.1/);
     const queries = page.getByRole("region", { name: "查询记录" });
+    assert.equal(await queries.getByLabel("每页").inputValue(), "10");
     await queries.getByRole("button", { name: "下一页", exact: true }).click();
     await queries.getByText(/第 2 \/ /).waitFor();
     await queries
@@ -193,7 +194,12 @@ async function poll(fn, message, timeout = 15000) {
       .locator("tbody tr")
       .first()
       .waitFor();
-    await page.getByLabel("显示", { exact: true }).selectOption("failed");
+    const recordTabs = page.getByRole("tablist", { name: "测速记录筛选" });
+    await recordTabs.getByRole("tab", { name: "全部探测", exact: true }).press("End");
+    assert.equal(
+      await recordTabs.getByRole("tab", { name: "失败记录", exact: true }).getAttribute("aria-selected"),
+      "true",
+    );
     const results = page.getByRole("region", { name: "测速结果" });
     await poll(
       async () =>
@@ -209,9 +215,9 @@ async function poll(fn, message, timeout = 15000) {
     assert(appVersion, "application version missing from status");
     assert(
       (await page.getByTestId("app-version").innerText()).includes(
-        `当前版本 v${appVersion}`,
+        `v${appVersion}`,
       ),
-      "settings must display the running backend version",
+      "sidebar footer must display the running backend version",
     );
     assert(await save.isDisabled());
     assert.equal(await page.getByText(/每日预算|单节点读取上限/).count(), 0);

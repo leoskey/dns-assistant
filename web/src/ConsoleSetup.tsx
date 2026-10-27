@@ -94,7 +94,6 @@ export function ConsoleSetup({
             <Gamepad2 aria-hidden="true" />
             连接你的主机
           </h2>
-          <p>让主机和 NAS 连接同一家庭网络，然后在主机上手动设置 DNS。</p>
         </div>
         <NavLink className="button" to="/connection">
           <Network aria-hidden="true" />
@@ -128,9 +127,11 @@ export function ConsoleSetup({
                   复制
                 </button>
               </div>
-              <p className="copy-feedback" role="status" aria-live="polite">
-                {feedback || "仅填写 IP 地址，不加 http:// 或端口。"}
-              </p>
+              {feedback && (
+                <p className="copy-feedback" role="status" aria-live="polite">
+                  {feedback}
+                </p>
+              )}
             </>
           ) : (
             <p className="setup-warning" role="status">
@@ -248,15 +249,6 @@ export function ConsoleSetup({
             </div>
           </div>
         </div>
-      </div>
-      <div className="setup-footer">
-        <p>
-          保存后，在“解析历史”确认出现主机或路由器的查询。网络测试通过不代表游戏下载已提速。
-        </p>
-        <p>
-          NAS 停机或无法联网时，将主机 DNS
-          改回自动并重新测试。菜单名称可能随系统语言和版本变化。
-        </p>
       </div>
     </section>
   );

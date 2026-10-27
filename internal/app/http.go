@@ -349,7 +349,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 }
 
 func parsePage(r *http.Request) (PageRequest, error) {
-	p := PageRequest{Page: 1, Size: 20}
+	p := PageRequest{Page: 1, Size: 10}
 	for name, dest := range map[string]*int{"page": &p.Page, "page_size": &p.Size} {
 		if values, ok := r.URL.Query()[name]; ok {
 			if len(values) != 1 {
@@ -362,8 +362,8 @@ func parsePage(r *http.Request) (PageRequest, error) {
 			*dest = n
 		}
 	}
-	if p.Size != 20 && p.Size != 50 && p.Size != 100 {
-		return p, errors.New("每页条数须为 20、50 或 100")
+	if p.Size != 10 && p.Size != 20 && p.Size != 50 && p.Size != 100 {
+		return p, errors.New("每页条数须为 10、20、50 或 100")
 	}
 	if values, ok := r.URL.Query()["snapshot"]; ok {
 		if len(values) != 1 {
