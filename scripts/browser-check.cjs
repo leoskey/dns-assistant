@@ -212,18 +212,22 @@ async function poll(fn, message, timeout = 15000) {
       "sidebar footer must display the running backend version",
     );
     assert(await save.isDisabled());
-    const proxyToggle = page.getByLabel("启用下载代理", { exact: true });
-    assert(!(await proxyToggle.isChecked()));
-    await proxyToggle.check();
-    await save.click();
-    await poll(() => save.isDisabled(), "proxy setting was not saved");
+    assert.equal(await page.getByRole("switch").count(), 0, "settings must not expose a proxy switch");
+    await page.getByRole("link", { name: "网络总览", exact: true }).click();
+    const proxyCard = page.getByRole("region", { name: "代理模式", exact: true });
+    const dnsCard = page.getByRole("region", { name: "DNS模式", exact: true });
+    await proxyCard.waitFor();
+    await dnsCard.waitFor();
+    assert.equal(await page.getByRole("switch").count(), 0, "proxy must start without a switch");
+    const beforeProxy = await request("config");
+    assert(!Object.hasOwn(beforeProxy, "proxy_enabled"));
     await page.reload();
-    await proxyToggle.waitFor();
-    assert(await proxyToggle.isChecked());
+    await proxyCard.getByText("代理设置", { exact: true }).waitFor();
+    assert.deepEqual(await request("config"), beforeProxy);
     const proxyURL = log.match(/BROWSER_PROXY_URL=(http:\/\/[^\s]+)/)?.[1];
     assert(proxyURL, "real proxy fixture missing");
-    const proxyRequest = () => new Promise((resolve, reject) => {
-      const request = http.request(proxyURL, { path: "http://xvcf1.xboxlive.com/file", headers: { Host: "xvcf1.xboxlive.com" } }, response => {
+    const proxyRequest = (target = "http://xvcf1.xboxlive.com/file", method = "GET") => new Promise((resolve, reject) => {
+      const request = http.request(proxyURL, { method, path: target, headers: { Host: new URL(target).host } }, response => {
         let body = "";
         response.on("data", data => body += data);
         response.on("end", () => resolve({ status: response.statusCode, body }));
@@ -235,37 +239,160 @@ async function poll(fn, message, timeout = 15000) {
     });
     assert.deepEqual(await proxyRequest(), { status: 200, body: "proxy-browser-fixture" });
     assert((await request("status")).proxy.downloaded_bytes > 0);
-    await page.getByRole("link", { name: "网络总览", exact: true }).click();
-    await page.getByLabel("接入方式", { exact: true }).selectOption("proxy");
     const setup = page.locator(".console-setup");
-    assert.equal(await setup.getByRole("link", { name: "代理设置", exact: true }).getAttribute("href"), "/settings");
-    await setup.getByText("8082（TCP）", { exact: true }).waitFor();
-    await setup.getByText("下载代理已启用", { exact: true }).waitFor();
-    assert.equal(await setup.getByLabel("代理服务器", { exact: true }).inputValue(), "192.168.1.10");
-    await setup.getByRole("button", { name: "复制代理地址", exact: true }).click();
-    await poll(async () => (await setup.locator(".copy-feedback").innerText()).includes("复制"), "copy feedback missing");
+    const parameters = page.locator(".connection-layout > .connection-modes");
+    assert.equal(await parameters.count(), 1);
+    assert.equal(await parameters.locator(".mode-card").count(), 2);
+    assert.equal(await parameters.getByText(/服务状态|正在转发|本次运行累计下行|流量包含|停止服务前|备用 DNS 怎么填/).count(), 0);
+    assert.equal(await parameters.locator("details").count(), 0);
+    await proxyCard.getByText("不需要", { exact: true }).waitFor();
+    await dnsCard.getByText("留空或同主 DNS", { exact: true }).waitFor();
+    const connectionTabs = setup.getByRole("tablist", { name: "配置模式", exact: true });
+    await connectionTabs.getByRole("tab", { name: "代理模式", exact: true }).focus();
+    for (const [key, name] of [["ArrowRight", "DNS模式"], ["Home", "代理模式"], ["End", "DNS模式"], ["ArrowLeft", "代理模式"]]) {
+      await page.keyboard.press(key);
+      assert.equal(await connectionTabs.getByRole("tab", { name, exact: true }).getAttribute("aria-selected"), "true");
+      assert(await proxyCard.isVisible() && await dnsCard.isVisible(), "guide tabs hid configuration parameters");
+    }
+    assert.equal(await page.locator("#connection-panel").getAttribute("aria-labelledby"), "connection-tab-proxy");
+    assert.equal(await page.locator("main").getByRole("link", { name: "解析历史", exact: true }).count(), 0);
+    assert.equal(await setup.getByRole("link", { name: "代理开关", exact: true }).count(), 0);
+    await proxyCard.getByText("8082（TCP）", { exact: true }).waitFor();
+    assert.equal(await dnsCard.getByText(/53（UDP|标准端口|端口/).count(), 0, "console DNS settings need only the address");
+    assert.equal(await proxyCard.getByLabel("代理服务器", { exact: true }).inputValue(), "192.168.1.10");
+    assert.equal(await dnsCard.getByLabel("主 DNS / 首选 DNS", { exact: true }).inputValue(), "192.168.1.10");
+    for (const [card, label] of [[proxyCard, "复制代理地址"], [dnsCard, "复制 DNS 地址"]]) {
+      const copy = card.getByRole("button", { name: label, exact: true });
+      await copy.scrollIntoViewIfNeeded();
+      const before = await card.evaluate(el => ({ height: el.getBoundingClientRect().height, factsTop: el.querySelector(".setup-facts").getBoundingClientRect().top }));
+      await copy.click();
+      await page.locator(".notice").getByText("地址已复制", { exact: true }).waitFor();
+      assert.deepEqual(await card.evaluate(el => ({ height: el.getBoundingClientRect().height, factsTop: el.querySelector(".setup-facts").getBoundingClientRect().top })), before, "copy feedback shifted card content");
+      assert.equal(await card.locator(".copy-feedback").count(), 0);
+      await page.getByRole("button", { name: "关闭提示", exact: true }).click();
+    }
+    let advertised = ["192.168.1.10", "10.0.0.8"];
+    const multipleAddresses = async route => {
+      const response = await route.fetch();
+      const status = await response.json();
+      await route.fulfill({ response, json: { ...status, service_addresses: advertised, dns_address: advertised[0] || "", proxy: { ...status.proxy, address: advertised[0] || "" } } });
+    };
+    await page.route("**/api/v1/status", multipleAddresses);
+    await page.reload();
+    const proxyAddress = proxyCard.getByRole("combobox", { name: "代理服务器", exact: true });
+    const dnsAddress = dnsCard.getByRole("combobox", { name: "主 DNS / 首选 DNS", exact: true });
+    await proxyAddress.waitFor();
+    assert.equal(await proxyAddress.innerText(), "192.168.1.10");
+    assert.equal(await dnsAddress.innerText(), "192.168.1.10");
+    await dnsAddress.click();
+    await page.getByRole("option", { name: "10.0.0.8", exact: true }).click();
+    assert.equal(await proxyAddress.innerText(), "10.0.0.8");
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
+    await proxyCard.getByRole("button", { name: "复制代理地址", exact: true }).click();
+    await page.locator(".notice").getByText("地址已复制", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "关闭提示", exact: true }).click();
+    assert.equal(await proxyAddress.innerText(), "10.0.0.8");
+    await page.setViewportSize({ width: 320, height: 568 });
+    await proxyAddress.click();
+    await page.getByRole("option", { name: "192.168.1.10", exact: true }).waitFor();
+    assert(!(await page.locator("body").innerText()).includes("127.0.0.1"));
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "address selector overflow");
+    await page.screenshot({ path: path.join(output, "address-options-mobile.png") });
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    assert.equal(await proxyAddress.innerText(), "192.168.1.10");
+    assert.equal(await dnsAddress.innerText(), "192.168.1.10");
+    advertised = [];
+    await page.reload();
+    await proxyCard.getByText(/尚未配置主机可用的服务地址/).waitFor();
+    assert.equal(await page.locator(".connection-modes").getByRole("combobox").count(), 0);
+    assert.equal(await page.locator(".connection-modes input").count(), 0);
+    await page.unroute("**/api/v1/status", multipleAddresses);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.reload();
+    await proxyCard.getByLabel("代理服务器", { exact: true }).waitFor();
     await setup.getByRole("tab", { name: "Switch", exact: true }).click();
     await setup.getByText(/无需用户名或密码/).waitFor();
     await setup.getByRole("tab", { name: "Xbox", exact: true }).click();
-    await setup.getByText(/Xbox 请使用 DNS 优选/).waitFor();
+    await setup.getByText(/Xbox 请使用 DNS模式/).waitFor();
+    await connectionTabs.getByRole("tab", { name: "DNS模式", exact: true }).click();
+    await setup.getByText(/备用 DNS 可留空，必须填写时使用相同地址/).waitFor();
     await setup.getByRole("tab", { name: "PlayStation", exact: true }).click();
+    const modelTabs = setup.getByRole("tablist", { name: "主机型号", exact: true });
+    assert.equal(await setup.locator(".guide-model select").count(), 0);
+    assert.equal(await modelTabs.getByRole("tab", { name: "PS5", exact: true }).getAttribute("aria-selected"), "true");
+    await modelTabs.getByRole("tab", { name: "PS4", exact: true }).click();
+    await setup.getByText("设置 → 网络 → 设定互联网连接 → Wi-Fi / LAN → 自定义", { exact: true }).waitFor();
+    for (const [key, name] of [["Home", "PS5"], ["End", "PS4"], ["ArrowRight", "PS5"], ["ArrowLeft", "PS4"]]) {
+      await page.keyboard.press(key);
+      const selected = modelTabs.getByRole("tab", { name, exact: true });
+      assert.equal(await selected.getAttribute("aria-selected"), "true");
+      assert.equal(await selected.getAttribute("tabindex"), "0");
+      assert.equal(await page.locator("#model-guide-panel").getAttribute("aria-labelledby"), "model-tab-" + name);
+      await setup.getByText(name === "PS5" ? "设置 → 网络 → 设置 → 设定互联网连接" : "设置 → 网络 → 设定互联网连接 → Wi-Fi / LAN → 自定义", { exact: true }).waitFor();
+    }
+    await setup.getByRole("tab", { name: "Xbox", exact: true }).click();
+    assert.equal(await modelTabs.count(), 0);
+    await setup.getByRole("tab", { name: "PlayStation", exact: true }).click();
+    assert.equal(await modelTabs.getByRole("tab", { name: "PS4", exact: true }).getAttribute("aria-selected"), "true");
+    await connectionTabs.getByRole("tab", { name: "代理模式", exact: true }).click();
+    assert.equal(await modelTabs.getByRole("tab", { name: "PS4", exact: true }).getAttribute("aria-selected"), "true");
+    await setup.getByText("设置 → 网络 → 设定互联网连接 → Wi-Fi / LAN → 自定义 → 代理设置", { exact: true }).waitFor();
+    await modelTabs.getByRole("tab", { name: "PS5", exact: true }).click();
     assert(!(await page.locator("body").innerText()).includes("NAS"));
+    assert(!(await page.locator(".network-board").innerText()).includes("自动选优"));
+    assert((await page.locator(".aside-note").innerText()).includes("自动选优"));
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    assert(await page.evaluate(() => Array.from(document.querySelectorAll(".board-footer svg")).every(icon => getComputedStyle(icon).animationName === "none" && getComputedStyle(icon).transform === "none")), "overview status icons must remain still");
+    const flowStart = await page.evaluate(() => Array.from(document.querySelectorAll(".route-diagram i"), line => ({ name: getComputedStyle(line, "::after").animationName, position: getComputedStyle(line, "::after").backgroundPositionX })));
+    assert.equal(flowStart.length, 2);
+    assert(flowStart.every(line => line.name === "route-flow"));
+    await page.locator(".route-diagram").screenshot({ path: path.join(output, "route-flow-a.png") });
+    await poll(async () => page.evaluate(start => Array.from(document.querySelectorAll(".route-diagram i")).every((line, index) => getComputedStyle(line, "::after").backgroundPositionX !== start[index].position), flowStart), "flow lines must visibly advance");
+    await page.waitForTimeout(250);
+    await page.locator(".route-diagram").screenshot({ path: path.join(output, "route-flow-b.png") });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert(await page.evaluate(() => Array.from(document.querySelectorAll(".route-diagram i")).every(line => getComputedStyle(line, "::after").animationName === "none")), "reduced motion must stop data flow");
     await setup.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(output, "proxy-desktop.png") });
-    for (const [width, height] of [[360, 640], [320, 568], [1024, 320]]) {
+    const connectionLayouts = [];
+    for (const [width, height] of [[1280, 800], [360, 640], [320, 568], [1024, 320]]) {
       await page.setViewportSize({ width, height });
-      await setup.locator(".setup-config").scrollIntoViewIfNeeded();
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `proxy guide ${width} overflow`);
-      await page.screenshot({ path: path.join(output, `proxy-${width}x${height}.png`) });
+      await proxyCard.getByRole("button", { name: "复制代理地址", exact: true }).scrollIntoViewIfNeeded();
+      const copyLayoutBefore = await page.locator(".connection-layout").evaluate(el => ({ height: el.getBoundingClientRect().height, top: el.getBoundingClientRect().top }));
+      await proxyCard.getByRole("button", { name: "复制代理地址", exact: true }).click();
+      await page.locator(".notice").getByText("地址已复制", { exact: true }).waitFor();
+      assert.deepEqual(await page.locator(".connection-layout").evaluate(el => ({ height: el.getBoundingClientRect().height, top: el.getBoundingClientRect().top })), copyLayoutBefore, "copy toast must not shift the page");
+      assert(await proxyCard.evaluate(el => {
+        const field = el.querySelector(".dns-copy").getBoundingClientRect(), button = el.querySelector(".copy-address").getBoundingClientRect();
+        return button.left >= field.left && button.right <= field.right && button.top >= field.top && button.bottom <= field.bottom;
+      }), "copy button must stay inside the field");
+      await page.screenshot({ path: path.join(output, `copy-toast-${width}x${height}.png`) });
+      await page.getByRole("button", { name: "关闭提示", exact: true }).click();
+      await proxyCard.scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `connection cards ${width} overflow`);
+      await page.screenshot({ path: path.join(output, `modes-${width}x${height}.png`) });
       await setup.locator(".setup-guide").scrollIntoViewIfNeeded();
-      await page.screenshot({ path: path.join(output, `proxy-guide-${width}x${height}.png`) });
+      await page.screenshot({ path: path.join(output, `configuration-${width}x${height}.png`) });
+      const spacing = await page.evaluate(() => {
+        const rect = selector => document.querySelector(selector).getBoundingClientRect();
+        const board = rect(".network-board"), modes = rect(".connection-modes"), setup = rect(".console-setup"), platform = rect(".platform-summary");
+        const middle = rect(".route-middle"), mark = rect(".route-middle .mark"), line = rect(".route-diagram i");
+        const stacked = setup.top > modes.top + 1;
+        return { connection: modes.top - board.bottom, platform: platform.top - Math.max(modes.bottom, setup.bottom),
+          cardGap: stacked ? setup.top - modes.bottom : setup.left - modes.right, stacked,
+          topOffset: Math.abs(setup.top - modes.top),
+          diagramOffset: Math.abs((middle.left + middle.right - board.left - board.right) / 2), lineOffset: Math.abs((line.top + line.bottom - mark.top - mark.bottom) / 2) };
+      });
+      assert(spacing.connection >= 23.5 && spacing.platform >= 23.5 && Math.abs(spacing.cardGap - 24) < 1, JSON.stringify({ width, height, spacing }));
+      assert.equal(spacing.stacked, width <= 760);
+      if (!spacing.stacked) assert(spacing.topOffset <= 1, "parameter and guide cards must align at the top");
+      assert(spacing.diagramOffset <= 1 && spacing.lineOffset <= 1, JSON.stringify({ width, height, spacing }));
+      connectionLayouts.push({ width, height, ...spacing });
     }
     await page.setViewportSize({ width: 1280, height: 800 });
+    assert.deepEqual(await proxyRequest(), { status: 200, body: "proxy-browser-fixture" });
     await page.getByRole("link", { name: "设置", exact: true }).click();
-    await proxyToggle.uncheck();
-    await save.click();
-    await poll(() => save.isDisabled(), "proxy disable was not saved");
-    assert.equal((await proxyRequest()).status, 503);
     assert.equal(await page.getByText(/每日预算|单节点读取上限/).count(), 0);
     const windowInput = page.getByLabel("单节点测速窗口（秒）", {
       exact: true,
@@ -276,6 +403,7 @@ async function poll(fn, message, timeout = 15000) {
     await windowInput.fill("2");
     await save.click();
     await poll(() => save.isDisabled(), "valid save did not recover");
+    assert.deepEqual(await proxyRequest(), { status: 200, body: "proxy-browser-fixture" });
     const feedInput = page.getByLabel("规则表 URL", { exact: true });
     await feedInput.fill("https://rules.example.com/bad.json");
     await save.click();
@@ -297,6 +425,14 @@ async function poll(fn, message, timeout = 15000) {
     await page.getByRole("tab", { name: "PlayStation", exact: true }).click();
     await page.getByRole("button", { name: "添加节点", exact: true }).click();
     const addDialog = page.getByRole("dialog", { name: "添加节点", exact: true });
+    await addDialog.waitFor();
+    await page.keyboard.press("Escape");
+    await addDialog.waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "添加节点", exact: true }).click();
+    await addDialog.waitFor();
+    await page.mouse.click(4, 4);
+    await addDialog.waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "添加节点", exact: true }).click();
     const platformChoice = addDialog.getByRole("combobox", { name: "平台", exact: true });
     assert((await platformChoice.innerText()).includes("PlayStation"));
     await platformChoice.click();
@@ -310,6 +446,73 @@ async function poll(fn, message, timeout = 15000) {
     assert.equal(saved.rules[2].platform, "Xbox");
     await page.getByRole("tab", { name: "Xbox", exact: true }).click();
     await page.getByText("xvcf2.xboxlive.com", { exact: true }).waitFor();
+    const capturedURL = "http://recorded.xboxlive.com/releases/game%20sample.bin?build=42&ticket=demo%2Bvalue";
+    const supplementURL = "http://xvcf2.xboxlive.com/range-file.bin?ticket=demo&part=2";
+    assert.deepEqual(await proxyRequest(capturedURL), { status: 200, body: "proxy-browser-fixture" });
+    let capturePage = await request("connections");
+    assert.equal(capturePage.page_size, 10);
+    assert(capturePage.items.some(record => record.address === capturedURL && record.client === "127.0.0.1" && record.method === "GET"));
+    await page.getByRole("link", { name: "连接记录", exact: true }).click();
+    const connectionRecords = page.getByRole("region", { name: "连接记录", exact: true });
+    const capturedRow = connectionRecords.locator("tbody tr").filter({ hasText: capturedURL });
+    await capturedRow.waitFor();
+    await capturedRow.getByRole("button", { name: "添加节点", exact: true }).click();
+    assert.equal(await addDialog.getByLabel("测试下载 URL", { exact: true }).inputValue(), capturedURL);
+    await addDialog.getByRole("combobox", { name: "平台", exact: true }).click();
+    await page.getByRole("option", { name: "Xbox", exact: true }).click();
+    await addDialog.getByRole("button", { name: "保存", exact: true }).click();
+    await addDialog.waitFor({ state: "hidden" });
+    assert((await request("config")).rules.some(rule => rule.domain === "recorded.xboxlive.com" && rule.url === capturedURL));
+    await capturedRow.getByRole("button", { name: "已收录", exact: true }).waitFor();
+    const advanced = await request("config");
+    const existingRule = advanced.rules.find(rule => rule.domain === "xvcf2.xboxlive.com");
+    existingRule.enabled = false;
+    existingRule.expected_prefix = "demo";
+    existingRule.min_bytes = 1024;
+    existingRule.candidates = ["1.1.1.1", "8.8.8.8"];
+    await request("config", advanced, "PUT");
+    assert.deepEqual(await proxyRequest(supplementURL), { status: 200, body: "proxy-browser-fixture" });
+    await connectionRecords.getByRole("button", { name: "刷新最新", exact: true }).click();
+    const supplementRow = connectionRecords.locator("tbody tr").filter({ hasText: supplementURL });
+    await supplementRow.getByRole("button", { name: "补充节点", exact: true }).click();
+    const supplementDialog = page.getByRole("dialog", { name: "补充节点", exact: true });
+    assert(await supplementDialog.getByRole("combobox", { name: "平台", exact: true }).isDisabled());
+    await supplementDialog.getByRole("button", { name: "更新", exact: true }).click();
+    await supplementDialog.waitFor({ state: "hidden" });
+    const supplemented = await request("config");
+    assert.deepEqual(supplemented, { ...advanced, rules: advanced.rules.map(rule => rule.domain === existingRule.domain ? { ...rule, url: supplementURL } : rule) });
+    const authority = "new.cdn.nintendo.net:443";
+    await new Promise((resolve, reject) => {
+      const req = http.request(proxyURL, { method: "CONNECT", path: authority, headers: { Host: authority } });
+      req.on("connect", (response, socket) => { socket.destroy(); response.statusCode === 200 ? resolve() : reject(new Error("CONNECT rejected")); });
+      req.on("error", reject);
+      req.setTimeout(5000, () => req.destroy(new Error("CONNECT timeout")));
+      req.end();
+    });
+    await connectionRecords.getByRole("button", { name: "刷新最新", exact: true }).click();
+    const tunnelRow = connectionRecords.locator("tbody tr").filter({ hasText: authority });
+    await tunnelRow.getByText("HTTPS 隧道，仅域名和端口", { exact: true }).waitFor();
+    await tunnelRow.getByRole("button", { name: "补充下载地址", exact: true }).click();
+    assert.equal(await addDialog.getByLabel("测试下载 URL", { exact: true }).inputValue(), "");
+    await addDialog.getByRole("button", { name: "保存", exact: true }).click();
+    assert.equal((await request("config")).rules.some(rule => rule.domain === "new.cdn.nintendo.net"), false);
+    await addDialog.getByRole("combobox", { name: "平台", exact: true }).click();
+    await page.getByRole("option", { name: "Switch", exact: true }).click();
+    await addDialog.getByLabel("测试下载 URL", { exact: true }).fill("https://wrong.cdn.nintendo.net/game.bin");
+    await addDialog.getByRole("button", { name: "保存", exact: true }).click();
+    await addDialog.getByRole("alert").getByText("请填写记录中相同域名的下载 URL", { exact: true }).waitFor();
+    await addDialog.getByLabel("测试下载 URL", { exact: true }).fill("https://new.cdn.nintendo.net/samples/game.bin?ticket=demo");
+    await page.screenshot({ path: path.join(output, "connections-https-complete.png") });
+    await addDialog.getByRole("button", { name: "保存", exact: true }).click();
+    await addDialog.waitFor({ state: "hidden" });
+    assert((await request("config")).rules.some(rule => rule.domain === "new.cdn.nintendo.net" && rule.platform === "Switch" && rule.url.includes("/samples/game.bin")));
+    capturePage = await request("connections");
+    assert(capturePage.items.some(record => record.method === "CONNECT" && record.address === authority && !record.address.includes("/samples")));
+    for (let i = 0; i < 12; i++) await proxyRequest("http://recorded.xboxlive.com/chunk-" + i + ".bin?part=" + i);
+    await connectionRecords.getByRole("button", { name: "刷新最新", exact: true }).click();
+    await connectionRecords.getByRole("button", { name: "下一页", exact: true }).click();
+    await connectionRecords.getByText(/第 2 \/ /).waitFor();
+    await page.screenshot({ path: path.join(output, "connections-desktop.png") });
     await page.getByRole("link", { name: "设置", exact: true }).click();
     await save.waitFor();
     for (const [width, height] of [
@@ -364,6 +567,7 @@ async function poll(fn, message, timeout = 15000) {
       for (const [name, url] of [
         ["网络总览", "/"],
         ["节点列表", "/platforms"],
+        ["连接记录", "/connections"],
         ["解析历史", "/connection"],
         ["测速记录", "/history"],
         ["运行日志", "/events"],
@@ -385,6 +589,7 @@ async function poll(fn, message, timeout = 15000) {
     const report = {
       passed: true,
       backend: "real Go/SQLite/DNS/HTTP fixtures",
+      connection_layouts: connectionLayouts,
       checks: [
         "automatic selection",
         "API pin/default regression reflected in node list",
@@ -396,11 +601,18 @@ async function poll(fn, message, timeout = 15000) {
         "record pagination and server filter",
         "daily summary API retained",
         "sidebar footer shows the running backend application version",
-        "proxy enable/reload, actual forwarded bytes, platform guides/copy and disable",
+        "proxy available at startup, reload, actual forwarded bytes and preserved after settings save",
+        "one parameter card with both modes and brief benefits, no telemetry/footer descriptions, guide at right, keyboard and mobile stacking",
+        "LAN address first item, shared multi-address selector, keyboard/mobile, clipboard fallback and empty addresses",
+        "in-field copy button, floating feedback without layout shift, DNS address without a port row",
+        "PS5/PS4 model tabs update guide pages, keyboard/panel semantics and selection retention",
+        "centered route diagram, static probe icon, moving connection segments and reduced motion",
         "real validation failure and save retry",
         "bad feed preserves last good / valid feed applies",
         "node modal with Radix platform selection, filtered defaults and field preservation",
-        "six pages and five viewport sizes; fixed save dock",
+        "captured full HTTP URLs to node creation and existing sample supplement with all other fields preserved",
+        "CONNECT authority only, manual download path required, no guessed HTTPS URL",
+        "shared node dialog cancel/reopen, connection pagination, seven pages and five viewport sizes; fixed save dock",
       ],
     };
     fs.writeFileSync(

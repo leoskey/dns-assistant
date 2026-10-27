@@ -17,7 +17,6 @@ export type Rule = {
 };
 export type Config = {
   enabled: boolean;
-  proxy_enabled: boolean;
   upstreams: string[];
   allowed_cidrs: string[];
   probe_seconds: number;
@@ -61,6 +60,14 @@ export type Query = {
   time: string;
   optimized: boolean;
 };
+export type ConnectionRecord = {
+  id: number;
+  time: string;
+  client: string;
+  method: string;
+  domain: string;
+  address: string;
+};
 export type Status = {
   app_version: string;
   app_revision: string;
@@ -71,6 +78,7 @@ export type Status = {
   applied_version: number;
   dns_connected: boolean;
   dns_address?: string;
+  service_addresses: string[];
   proxy: {
     enabled: boolean;
     address: string;

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,16 +27,7 @@ func TestDownloadProxyTargetAndAccessBoundaries(t *testing.T) {
 	}
 	r := httptest.NewRequest("GET", "http://example.com/file", nil)
 	r.RemoteAddr = "192.168.1.2:1234"
-	w := httptest.NewRecorder()
-	p.ServeHTTP(w, r)
-	if w.Code != 503 {
-		t.Fatal("proxy must default to disabled", w.Code)
-	}
-	c := m.Config()
-	c.ProxyEnabled = true
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
+	var w *httptest.ResponseRecorder
 	for _, target := range []struct{ method, target string }{
 		{"GET", "/relative"}, {"GET", "https://example.com/file"}, {"GET", "http://example.com:8080/file"},
 		{"GET", "http://user:secret@example.com/file"}, {"GET", "http://localhost/file"},
@@ -143,11 +135,6 @@ func TestDownloadProxyHTTPRangeHeadersAndStreaming(t *testing.T) {
 	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
 	m := testManager(t)
-	c := m.Config()
-	c.ProxyEnabled = true
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
 	var requests atomic.Int64
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -205,25 +192,9 @@ func TestDownloadProxyHTTPRangeHeadersAndStreaming(t *testing.T) {
 	if requests.Load() != 2 || m.DownloadProxy.downloaded.Load() < 100 {
 		t.Fatal("transfer counters missing")
 	}
-	c.ProxyEnabled = false
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
-	resp, err := client.Get("http://download.example/file")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != 503 || requests.Load() != 2 {
-		t.Fatal("disable accepted a new transfer")
-	}
-	c.ProxyEnabled = true
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
 	m.DownloadProxy.forward.Transport.(*http.Transport).CloseIdleConnections()
 	origin.Close()
-	resp, err = client.Get("http://download.example/file")
+	resp, err := client.Get("http://download.example/file")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,11 +206,6 @@ func TestDownloadProxyHTTPRangeHeadersAndStreaming(t *testing.T) {
 
 func TestDownloadProxyCONNECTPreservesTLS(t *testing.T) {
 	m := testManager(t)
-	c := m.Config()
-	c.ProxyEnabled = true
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
 	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS.ServerName != "example.com" || r.Host != "example.com" {
 			t.Error("TLS SNI/Host changed")
@@ -270,6 +236,10 @@ func TestDownloadProxyCONNECTPreservesTLS(t *testing.T) {
 	if err != nil || string(data) != "encrypted-payload" || m.DownloadProxy.downloaded.Load() == 0 {
 		t.Fatal(string(data), err)
 	}
+	page, err := m.store.ConnectionPage(PageRequest{Page: 1, Size: 10})
+	if err != nil || page.Total != 1 || page.Items[0].Method != "CONNECT" || page.Items[0].Address != "example.com:443" || page.Items[0].Domain != "example.com" {
+		t.Fatal("HTTPS records must contain the tunnel authority, never the encrypted path", page, err)
+	}
 	if _, err := client.Get("https://wrong.example/download"); err == nil {
 		t.Fatal("invalid hostname certificate accepted")
 	}
@@ -282,11 +252,6 @@ func TestDownloadProxyCONNECTPreservesTLS(t *testing.T) {
 
 func TestDownloadProxyBufferedTunnelAndShutdown(t *testing.T) {
 	m := testManager(t)
-	c := m.Config()
-	c.ProxyEnabled = true
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
 	echo, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -333,13 +298,9 @@ func TestDownloadProxyBufferedTunnelAndShutdown(t *testing.T) {
 	if m.DownloadProxy.active.Load() != 1 {
 		t.Fatal("active tunnel missing")
 	}
-	c.ProxyEnabled = false
-	if err := m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
 	io.WriteString(conn, "pong")
 	if _, err := io.ReadFull(reader, payload[:]); err != nil || string(payload[:]) != "pong" {
-		t.Fatal("disable truncated established tunnel", err)
+		t.Fatal("established tunnel lost data", err)
 	}
 	cancel()
 	if _, err := reader.ReadByte(); err == nil {
@@ -363,34 +324,40 @@ func TestDownloadProxyBufferedTunnelAndShutdown(t *testing.T) {
 
 func TestDownloadProxyConfigPersistenceBackupAndStatus(t *testing.T) {
 	a, h := testAPI(t)
-	c := a.m.Config()
-	if c.ProxyEnabled {
-		t.Fatal("proxy enabled by default")
-	}
-	c.ProxyEnabled = true
-	body, _ := json.Marshal(c)
-	if r := call(h, "PUT", "/api/v1/config", string(body), "1", ""); r.Code != 200 {
-		t.Fatal(r.Body.String())
-	}
-	restored, err := NewManager(a.m.store, a.m.dnsURL, a.m.token)
-	if err != nil || !restored.Config().ProxyEnabled {
-		t.Fatal("setting not persisted", err)
-	}
-	backup := call(h, "GET", "/api/v1/backup", "", "", "")
-	c.ProxyEnabled = false
-	if err := a.m.SetConfig(c); err != nil {
-		t.Fatal(err)
-	}
-	if r := call(h, "POST", "/api/v1/restore", backup.Body.String(), "1", ""); r.Code != 200 || !a.m.Config().ProxyEnabled {
-		t.Fatal("backup lost proxy setting", r.Body.String())
+	body, _ := json.Marshal(a.m.Config())
+	if bytes.Contains(body, []byte("proxy_enabled")) {
+		t.Fatal("retired switch exported")
 	}
 	var fields map[string]json.RawMessage
 	json.Unmarshal(body, &fields)
-	delete(fields, "proxy_enabled")
+	fields["proxy_enabled"] = json.RawMessage("false")
 	legacy, _ := json.Marshal(fields)
-	upgraded, err := upgradeConfig(legacy)
-	if err != nil || upgraded.ProxyEnabled {
-		t.Fatal("old config must keep proxy disabled", err)
+	if err := a.m.store.Set("config", json.RawMessage(legacy)); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewManager(a.m.store, a.m.dnsURL, a.m.token)
+	if err != nil {
+		t.Fatal("legacy disabled setting blocked startup", err)
+	}
+	if !reflect.DeepEqual(restored.Config(), a.m.Config()) {
+		t.Fatal("migration changed other settings")
+	}
+	var persisted json.RawMessage
+	if err := a.m.store.Get("config", &persisted); err != nil || bytes.Contains(persisted, []byte("proxy_enabled")) {
+		t.Fatal("retired switch remained in storage", err)
+	}
+	if r := call(h, "PUT", "/api/v1/config", string(legacy), "1", ""); r.Code != 400 {
+		t.Fatal("normal PUT accepted retired switch", r.Code)
+	}
+	for _, format := range []int{1, 2} {
+		backup, _ := json.Marshal(map[string]any{"format": format, "config": json.RawMessage(legacy)})
+		if r := call(h, "POST", "/api/v1/restore", string(backup), "1", ""); r.Code != 200 {
+			t.Fatal("legacy disabled backup failed", r.Body.String())
+		}
+	}
+	backup := call(h, "GET", "/api/v1/backup", "", "", "")
+	if backup.Code != 200 || bytes.Contains(backup.Body.Bytes(), []byte("proxy_enabled")) {
+		t.Fatal("backup exported retired switch", backup.Body.String())
 	}
 	t.Setenv("SERVER_IP", "192.168.1.30")
 	t.Setenv("NAS_IP", "192.168.1.20")
@@ -409,5 +376,33 @@ func TestDownloadProxyConfigPersistenceBackupAndStatus(t *testing.T) {
 	t.Setenv("SERVER_IP", "invalid")
 	if deploymentIP() != "" {
 		t.Fatal("invalid primary address must not silently use legacy value")
+	}
+}
+
+func TestLANIPv4Discovery(t *testing.T) {
+	addrs := []net.Addr{}
+	for _, value := range []string{"127.0.0.1/8", "::1/128", "192.168.2.15/24", "8.8.8.8/32", "169.254.1.1/16", "10.0.0.8/8", "192.168.2.15/24", "172.20.0.4/16", "fd12::1/64", "100.64.0.1/10", "0.0.0.0/0"} {
+		_, addr, err := net.ParseCIDR(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// ParseCIDR's network masks the host bits; retain the actual interface address.
+		addr.IP = net.ParseIP(strings.Split(value, "/")[0])
+		addrs = append(addrs, addr)
+	}
+	if got := lanIPv4s(addrs); !reflect.DeepEqual(got, []string{"192.168.2.15", "10.0.0.8", "172.20.0.4"}) {
+		t.Fatal("LAN addresses must retain order, omit non-LAN addresses and deduplicate", got)
+	}
+	if got := lanIPv4s(nil); got == nil || len(got) != 0 {
+		t.Fatal("empty discovery must return an empty list", got)
+	}
+	t.Setenv("SERVER_IP", "127.0.0.1")
+	t.Setenv("NAS_IP", "192.168.2.15")
+	if got := serviceAddresses(); len(got) != 0 {
+		t.Fatal("invalid explicit address must not fall back to loopback or container interfaces", got)
+	}
+	t.Setenv("SERVER_IP", "10.0.0.8")
+	if got := serviceAddresses(); !reflect.DeepEqual(got, []string{"10.0.0.8"}) {
+		t.Fatal("explicit host address must take precedence", got)
 	}
 }

@@ -26,7 +26,6 @@ type Rule struct {
 }
 type Config struct {
 	Enabled         bool     `json:"enabled"`
-	ProxyEnabled    bool     `json:"proxy_enabled"`
 	Upstreams       []string `json:"upstreams"`
 	AllowedCIDRs    []string `json:"allowed_cidrs"`
 	ProbeSeconds    int      `json:"probe_seconds"`

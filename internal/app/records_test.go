@@ -18,11 +18,14 @@ func TestRecordPagesFilterAndSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 		a.m.Observe(Query{Domain: "example.com", Client: "192.168.1.5", Type: "A"})
+		if err := a.m.store.AddConnection(Connection{Time: time.Now(), Client: "192.168.1.5", Method: "GET", Domain: "files.xboxlive.com", Address: "http://files.xboxlive.com/file"}); err != nil {
+			t.Fatal(err)
+		}
 		if err := a.m.store.Event(fmt.Sprint(i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, endpoint := range []string{"queries", "history", "history/events", "history/daily"} {
+	for _, endpoint := range []string{"connections", "queries", "history", "history/events", "history/daily"} {
 		for _, query := range []string{"", "?page_size=10"} {
 			var page Page[json.RawMessage]
 			resp := call(h, "GET", "/api/v1/"+endpoint+query, "", "", "")
@@ -52,7 +55,7 @@ func TestRecordPagesFilterAndSnapshot(t *testing.T) {
 	if json.Unmarshal(resp.Body.Bytes(), &second) != nil || second.Total != 21 || len(second.Items) != 1 || second.Items[0].ID != 2 {
 		t.Fatal(resp.Body.String())
 	}
-	for _, endpoint := range []string{"queries", "history/events"} {
+	for _, endpoint := range []string{"connections", "queries", "history/events"} {
 		var page Page[json.RawMessage]
 		resp = call(h, "GET", "/api/v1/"+endpoint+"?page=3&page_size=20", "", "", "")
 		if resp.Code != 200 || json.Unmarshal(resp.Body.Bytes(), &page) != nil || page.Total != 43 || len(page.Items) != 3 || page.Page != 3 {
@@ -81,6 +84,9 @@ func TestRecordRetentionBoundsAndRestart(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	for _, at := range []time.Time{now.AddDate(0, 0, -40), now.AddDate(0, 0, -8), now} {
+		if err = s.AddConnection(Connection{Time: at, Method: "GET", Address: "http://files.xboxlive.com/file"}); err != nil {
+			t.Fatal(err)
+		}
 		q := Query{Domain: "example.com", Client: "192.168.1.5", Type: "A", Time: at}
 		if err = s.AddQuery(q); err != nil {
 			t.Fatal(err)
@@ -101,7 +107,7 @@ func TestRecordRetentionBoundsAndRestart(t *testing.T) {
 	if err = s.pruneAt(now); err != nil {
 		t.Fatal(err)
 	}
-	for table, want := range map[string]int{"queries": 1, "results": 2, "events": 2} {
+	for table, want := range map[string]int{"connections": 1, "queries": 1, "results": 2, "events": 2} {
 		var n int
 		if err = s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil || n != want {
 			t.Fatal(table, n, err)
@@ -112,7 +118,7 @@ func TestRecordRetentionBoundsAndRestart(t *testing.T) {
 	for _, log := range []struct {
 		table, column string
 		limit         int
-	}{{"queries", "payload", queryLimit}, {"results", "payload", resultLimit}, {"events", "message", eventLimit}} {
+	}{{"connections", "payload", connectionLimit}, {"queries", "payload", queryLimit}, {"results", "payload", resultLimit}, {"events", "message", eventLimit}} {
 		_, err = s.db.Exec("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO "+log.table+"(time,"+log.column+") SELECT ?, '{}' FROM n", log.limit+5, now.Format(time.RFC3339Nano))
 		if err != nil {
 			t.Fatal(err)
@@ -135,6 +141,10 @@ func TestRecordRetentionBoundsAndRestart(t *testing.T) {
 	var version uint64
 	if err = s.Get("version", &version); err != nil || version != 7 {
 		t.Fatal("cleanup changed active state", version, err)
+	}
+	connections, err := s.ConnectionPage(PageRequest{Page: 100000, Size: 100})
+	if err != nil || connections.Total != connectionLimit || connections.Page != 100 || connections.RetentionDays != 7 {
+		t.Fatal("connection retention/restart", connections, err)
 	}
 	page, err := s.QueryPage(PageRequest{Page: 100000, Size: 100})
 	if err != nil || page.Page != 100 || page.Total != queryLimit {
@@ -208,7 +218,7 @@ func TestRecordSchemaMigrationKeepsConfiguration(t *testing.T) {
 		t.Fatal(err, restored)
 	}
 	var schema, budgets int
-	if err = s.db.QueryRow("PRAGMA user_version").Scan(&schema); err != nil || schema != 3 {
+	if err = s.db.QueryRow("PRAGMA user_version").Scan(&schema); err != nil || schema != 4 {
 		t.Fatal("schema migration", schema, err)
 	}
 	s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name='budgets'").Scan(&budgets)

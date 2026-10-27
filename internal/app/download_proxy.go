@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -55,10 +56,6 @@ func (p *DownloadProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "代理仅允许配置的局域网来源", http.StatusForbidden)
 		return
 	}
-	if !c.ProxyEnabled {
-		http.Error(w, "下载代理未启用", http.StatusServiceUnavailable)
-		return
-	}
 	if err := validateProxyTarget(r); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -70,6 +67,7 @@ func (p *DownloadProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "代理并发已满，请稍后重试", http.StatusServiceUnavailable)
 		return
 	}
+	p.recordRequest(r)
 	p.active.Add(1)
 	defer p.active.Add(-1)
 	if r.Method == http.MethodConnect {
@@ -77,6 +75,22 @@ func (p *DownloadProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.forward.ServeHTTP(w, r)
+}
+
+func (p *DownloadProxy) recordRequest(r *http.Request) {
+	client, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		client = r.RemoteAddr
+	}
+	domain, address := r.URL.Hostname(), r.URL.String()
+	if r.Method == http.MethodConnect {
+		domain, _, _ = net.SplitHostPort(r.Host)
+		address = r.Host
+	}
+	record := Connection{Time: time.Now().UTC(), Client: client, Method: r.Method, Domain: strings.TrimSuffix(strings.ToLower(domain), "."), Address: address}
+	if err := p.m.store.AddConnection(record); err != nil {
+		slog.Warn("连接记录写入失败", "error", err)
+	}
 }
 
 func validateProxyTarget(r *http.Request) error {
@@ -229,4 +243,38 @@ func deploymentIP() string {
 		return ip.String()
 	}
 	return ""
+}
+
+func serviceAddresses() []string {
+	if strings.TrimSpace(os.Getenv("SERVER_IP")) != "" || strings.TrimSpace(os.Getenv("NAS_IP")) != "" {
+		if ip := net.ParseIP(deploymentIP()); ip != nil && ip.IsPrivate() {
+			return []string{ip.String()}
+		}
+		return []string{}
+	}
+	// Bridge interfaces belong to the container, not the host accepting console connections.
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(marker); err == nil {
+			return []string{}
+		}
+	}
+	addrs, _ := net.InterfaceAddrs()
+	return lanIPv4s(addrs)
+}
+
+func lanIPv4s(addrs []net.Addr) []string {
+	ips := []string{}
+	seen := map[string]bool{}
+	for _, addr := range addrs {
+		ip, subnet, err := net.ParseCIDR(addr.String())
+		if err != nil || len(subnet.Mask) != net.IPv4len || !ip.IsPrivate() {
+			continue
+		}
+		value := ip.String()
+		if !seen[value] {
+			ips = append(ips, value)
+			seen[value] = true
+		}
+	}
+	return ips
 }

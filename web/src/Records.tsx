@@ -1,6 +1,15 @@
 import { useEffect, useId, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { api, bytes, date, type Result, type Query } from "./api";
+import {
+  api,
+  bytes,
+  date,
+  type Result,
+  type Query,
+  type ConnectionRecord,
+  type Status,
+} from "./api";
+import { NodeDialog, type NodeDraft } from "./NodeDialog";
 
 export type RecordPage<T> = {
   items: T[];
@@ -145,6 +154,105 @@ function Pager<T>({ records }: { records: ReturnType<typeof useRecords<T>> }) {
   );
 }
 
+export function ConnectionRecords({
+  status,
+  refresh,
+  message,
+}: {
+  status: Status | null;
+  refresh: () => Promise<void>;
+  message: (value: string) => void;
+}) {
+  const records = useRecords<ConnectionRecord>("connections");
+  const [draft, setDraft] = useState<NodeDraft | null>(null);
+  return (
+    <section aria-label="连接记录" aria-busy={records.busy}>
+      <p className="list-hint">
+        记录经过代理的请求。HTTP 显示完整 URL；HTTPS
+        仅记录域名和端口，添加节点时需补充下载地址。
+      </p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>来源设备 IP</th>
+              <th>方法</th>
+              <th>请求地址</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.data?.items.map((record) => {
+              const rule = status?.rules.find(
+                (rule) => rule.domain === record.domain,
+              );
+              const tunnel = record.method === "CONNECT";
+              const eligible =
+                tunnel || record.method === "GET" || record.method === "HEAD";
+              const collected = !tunnel && rule?.url === record.address;
+              return (
+                <tr key={record.id}>
+                  <td>{date(record.time)}</td>
+                  <td>{record.client}</td>
+                  <td>{record.method}</td>
+                  <td className="connection-address">
+                    {record.address}
+                    {tunnel && <small>HTTPS 隧道，仅域名和端口</small>}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      disabled={!status || !eligible || collected}
+                      title={
+                        !eligible
+                          ? "仅 GET／HEAD 请求可直接作为下载样本"
+                          : undefined
+                      }
+                      onClick={() =>
+                        setDraft({
+                          url: tunnel ? "" : record.address,
+                          domain: record.domain,
+                          platform: rule?.platform || "",
+                          supplement: !!rule,
+                        })
+                      }
+                    >
+                      {collected
+                        ? "已收录"
+                        : tunnel
+                          ? "补充下载地址"
+                          : rule
+                            ? "补充节点"
+                            : "添加节点"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {records.data?.items.length === 0 && (
+              <tr>
+                <td colSpan={5} className="empty">
+                  暂无连接记录。主机使用代理发起下载后，记录会自动出现。
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <Pager records={records} />
+      {draft && (
+        <NodeDialog
+          draft={draft}
+          onClose={() => setDraft(null)}
+          refresh={refresh}
+          message={message}
+        />
+      )}
+    </section>
+  );
+}
+
 export function QueryRecords() {
   const records = useRecords<Query>("queries");
   return (
@@ -280,21 +388,37 @@ export function HistoryRecords() {
             aria-controls={`${id}-panel`}
             tabIndex={filter === value ? 0 : -1}
             onClick={() => setFilter(value)}
-            onKeyDown={e => {
-              const next = e.key === "ArrowRight" ? (index + 1) % filters.length
-                : e.key === "ArrowLeft" ? (index + filters.length - 1) % filters.length
-                : e.key === "Home" ? 0 : e.key === "End" ? filters.length - 1 : -1;
+            onKeyDown={(e) => {
+              const next =
+                e.key === "ArrowRight"
+                  ? (index + 1) % filters.length
+                  : e.key === "ArrowLeft"
+                    ? (index + filters.length - 1) % filters.length
+                    : e.key === "Home"
+                      ? 0
+                      : e.key === "End"
+                        ? filters.length - 1
+                        : -1;
               if (next < 0) return;
               e.preventDefault();
               setFilter(filters[next][0]);
-              (e.currentTarget.parentElement?.children[next] as HTMLButtonElement)?.focus();
+              (
+                e.currentTarget.parentElement?.children[
+                  next
+                ] as HTMLButtonElement
+              )?.focus();
             }}
           >
             {label}
           </button>
         ))}
       </div>
-      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-${filter}`} tabIndex={0}>
+      <div
+        id={`${id}-panel`}
+        role="tabpanel"
+        aria-labelledby={`${id}-${filter}`}
+        tabIndex={0}
+      >
         <Results key={filter} filter={filter} />
       </div>
     </>

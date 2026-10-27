@@ -115,6 +115,19 @@ func (a *API) Handler() http.Handler {
 		}
 		jsonOut(w, 200, c)
 	})
+	protected.HandleFunc("GET /api/v1/connections", func(w http.ResponseWriter, r *http.Request) {
+		p, err := parsePage(r)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		page, err := a.m.store.ConnectionPage(p)
+		if err != nil {
+			jsonError(w, 500, "连接记录读取失败")
+			return
+		}
+		jsonOut(w, 200, page)
+	})
 	protected.HandleFunc("GET /api/v1/queries", func(w http.ResponseWriter, r *http.Request) {
 		p, err := parsePage(r)
 		if err != nil {
@@ -341,9 +354,13 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	feed := a.m.feed
 	dnsConnected := time.Since(a.m.lastSync) < 25*time.Second
 	a.m.mu.RUnlock()
-	dnsAddress := deploymentIP()
-	proxy := ProxyStatus{Enabled: c.ProxyEnabled, Address: dnsAddress, Port: 8082, ActiveTransfers: a.m.DownloadProxy.active.Load(), DownloadedBytes: a.m.DownloadProxy.downloaded.Load()}
-	jsonOut(w, 200, map[string]any{"app_version": Version(), "app_revision": Revision, "enabled": c.Enabled, "selections": selections, "tasks": tasks, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "proxy": proxy, "feed": feed, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "last_tests": lastTests, "interval_seconds": c.IntervalSeconds})
+	addresses := serviceAddresses()
+	dnsAddress := ""
+	if len(addresses) > 0 {
+		dnsAddress = addresses[0]
+	}
+	proxy := ProxyStatus{Enabled: true, Address: dnsAddress, Port: 8082, ActiveTransfers: a.m.DownloadProxy.active.Load(), DownloadedBytes: a.m.DownloadProxy.downloaded.Load()}
+	jsonOut(w, 200, map[string]any{"app_version": Version(), "app_revision": Revision, "enabled": c.Enabled, "selections": selections, "tasks": tasks, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "service_addresses": addresses, "proxy": proxy, "feed": feed, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "last_tests": lastTests, "interval_seconds": c.IntervalSeconds})
 }
 
 func parsePage(r *http.Request) (PageRequest, error) {

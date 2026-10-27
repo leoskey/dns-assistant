@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
-import { QueryRecords, HistoryRecords, Events } from "./Records";
+import { QueryRecords, ConnectionRecords, HistoryRecords, Events } from "./Records";
 import {
   BrowserRouter,
   NavLink,
@@ -22,10 +22,10 @@ import {
   Activity,
   ArrowUpRight,
   Check,
-  CircleCheck,
   Gamepad2,
   History as HistoryIcon,
   LayoutDashboard,
+  Link2,
   ListChecks,
   Network,
   Pause,
@@ -36,7 +36,7 @@ import {
   Download,
   Upload,
 } from "lucide-react";
-import { api, date, active, bytes, type Config, type Status } from "./api";
+import { api, date, active, type Config, type Status } from "./api";
 import "./style.css";
 type ContextValue = {
   status: Status | null;
@@ -107,6 +107,7 @@ function App() {
                 [
                   ["/", "网络总览", LayoutDashboard],
                   ["/platforms", "节点列表", Gamepad2],
+                  ["/connections", "连接记录", Link2],
                   ["/connection", "解析历史", Network],
                   ["/history", "测速记录", HistoryIcon],
                   ["/events", "运行日志", Activity],
@@ -182,6 +183,7 @@ function App() {
 }
 function PageRoutes() {
   const location = useLocation();
+  const app = useApp();
   useEffect(() => {
     document.querySelector(".workspace")?.scrollTo(0, 0);
   }, [location.pathname]);
@@ -190,6 +192,7 @@ function PageRoutes() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/platforms" element={<Platforms />} />
+        <Route path="/connections" element={<><Title title="连接记录" /><ConnectionRecords {...app} /></>} />
         <Route path="/connection" element={<Connection />} />
         <Route path="/history" element={<History />} />
         <Route path="/events" element={<><Title title="运行日志" /><Events /></>} />
@@ -229,7 +232,7 @@ function Title({
   );
 }
 function Overview() {
-  const { status } = useApp();
+  const { status, message } = useApp();
   if (!status)
     return (
       <p className="loading" role="status">
@@ -242,21 +245,6 @@ function Overview() {
     <>
       <Title title="网络总览" />
       <section className="network-board">
-        <div className="board-intro">
-          <span className={"status-pill " + (status.enabled ? "good" : "")}>
-            {status.enabled && <CircleCheck aria-hidden="true" />}
-            {status.enabled ? "自动选优已开启" : "自动选优已暂停"}
-          </span>
-          <h2>
-            {running.length
-              ? "正在检测下载节点"
-              : chosen.length
-                ? "下载节点已就绪"
-                : status.tasks.length
-                  ? "当前使用上游解析"
-                  : "从第一次探测开始"}
-          </h2>
-        </div>
         <div
           className="route-diagram"
           aria-label="主机通过 DNS 优选或下载代理使用 CDN"
@@ -265,12 +253,12 @@ function Overview() {
             <Gamepad2 aria-hidden="true" />
             游戏主机
           </div>
-          <i />
+          <i aria-hidden="true" />
           <div className="route-middle">
             <Mark />
             本地服务
           </div>
-          <i />
+          <i aria-hidden="true" />
           <div>
             <Server aria-hidden="true" />
             下载节点
@@ -282,10 +270,7 @@ function Overview() {
             {chosen.length} 个域名已有优选节点
           </span>
           <span>
-            <Activity
-              className={running.length ? "task-running" : undefined}
-              aria-hidden="true"
-            />
+            <Activity aria-hidden="true" />
             {running.length} 项探测进行中
           </span>
           <span>
@@ -297,28 +282,10 @@ function Overview() {
         </div>
       </section>
       <ConsoleSetup
-        address={status.dns_address}
-        connected={status.dns_connected}
-        proxy={status.proxy}
+        addresses={status.service_addresses}
+        proxyPort={status.proxy.port}
+        message={message}
       />
-      <section className="rule" aria-labelledby="proxy-status-title">
-        <div className="section-heading">
-          <h2 id="proxy-status-title">下载代理</h2>
-          <NavLink to="/settings">
-            {status.proxy.enabled ? "管理代理" : "前往启用"}
-            <ArrowUpRight aria-hidden="true" />
-          </NavLink>
-        </div>
-        <p>
-          {status.proxy.enabled ? "已启用" : "未启用"}，
-          {status.proxy.active_transfers} 个请求或隧道正在转发，本次运行累计下行{" "}
-          {bytes(status.proxy.downloaded_bytes)}。
-        </p>
-        <p className="muted">
-          流量包含协议开销，服务重启后重新累计；HTTPS
-          隧道不显示游戏名称或下载进度。
-        </p>
-      </section>
       <div className="section-heading">
         <h2>平台下载节点</h2>
         <NavLink to="/platforms">
@@ -540,27 +507,6 @@ function Settings() {
                   onChange={(e) => field("timezone", e.target.value)}
                 />
               </label>
-            </div>
-          </section>
-          <section className="settings-section">
-            <div>
-              <h2>下载代理</h2>
-            </div>
-            <div className="fields">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={config.proxy_enabled}
-                  onChange={(e) => field("proxy_enabled", e.target.checked)}
-                />
-                启用下载代理
-              </label>
-              <p className="muted">
-                端口 8082，仅允许配置的局域网来源。地址与主机设置步骤见首页。
-              </p>
-              <p className="muted">
-                关闭后拒绝新请求，已建立的传输继续到结束。关闭或停止服务前，请先将主机代理设置恢复为不使用。
-              </p>
             </div>
           </section>
           <section className="settings-section">
