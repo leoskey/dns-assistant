@@ -1299,6 +1299,9 @@ details summary {
   min-height: 30px;
   padding: 4px 28px 4px 9px;
 }
+.setup-config .guide-model {
+  display: flex;
+}
 .guide-path {
   font-size: 12px;
   color: var(--foreground);

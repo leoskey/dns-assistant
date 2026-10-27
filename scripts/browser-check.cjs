@@ -5,6 +5,7 @@ const { spawn } = require("node:child_process");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const http = require("node:http");
 const binary = process.env.APP_TEST_BINARY;
 if (!binary) throw new Error("APP_TEST_BINARY must point to go test -c output");
 const output =
@@ -14,7 +15,7 @@ const child = spawn(binary, ["-test.run", "^TestBrowserFixture$", "-test.v"], {
   env: {
     ...process.env,
     DNS_ASSISTANT_BROWSER_FIXTURE: "1",
-    NAS_IP: "192.168.1.10",
+    SERVER_IP: "192.168.1.10",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -82,6 +83,7 @@ async function poll(fn, message, timeout = 15000) {
       viewport: { width: 1280, height: 800 },
       reducedMotion: "reduce",
     });
+    page.setDefaultTimeout(15000);
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(base + "/platforms");
@@ -214,6 +216,60 @@ async function poll(fn, message, timeout = 15000) {
       "settings must display the running backend version",
     );
     assert(await save.isDisabled());
+    const proxyToggle = page.getByLabel("启用下载代理", { exact: true });
+    assert(!(await proxyToggle.isChecked()));
+    await proxyToggle.check();
+    await save.click();
+    await poll(() => save.isDisabled(), "proxy setting was not saved");
+    await page.reload();
+    await proxyToggle.waitFor();
+    assert(await proxyToggle.isChecked());
+    const proxyURL = log.match(/BROWSER_PROXY_URL=(http:\/\/[^\s]+)/)?.[1];
+    assert(proxyURL, "real proxy fixture missing");
+    const proxyRequest = () => new Promise((resolve, reject) => {
+      const request = http.request(proxyURL, { path: "http://xvcf1.xboxlive.com/file", headers: { Host: "xvcf1.xboxlive.com" } }, response => {
+        let body = "";
+        response.on("data", data => body += data);
+        response.on("end", () => resolve({ status: response.statusCode, body }));
+        response.on("error", reject);
+      });
+      request.on("error", reject);
+      request.setTimeout(5000, () => request.destroy(new Error("proxy request timeout")));
+      request.end();
+    });
+    assert.deepEqual(await proxyRequest(), { status: 200, body: "proxy-browser-fixture" });
+    assert((await read("status")).proxy.downloaded_bytes > 0);
+    await page.getByRole("link", { name: "网络总览", exact: true }).click();
+    await page.getByLabel("接入方式", { exact: true }).selectOption("proxy");
+    const setup = page.locator(".console-setup");
+    assert.equal(await setup.getByRole("link", { name: "代理设置", exact: true }).getAttribute("href"), "/settings");
+    await setup.getByText("8082（TCP）", { exact: true }).waitFor();
+    await setup.getByText("下载代理已启用", { exact: true }).waitFor();
+    assert.equal(await setup.getByLabel("代理服务器", { exact: true }).inputValue(), "192.168.1.10");
+    await setup.getByRole("button", { name: "复制代理地址", exact: true }).click();
+    await poll(async () => (await setup.locator(".copy-feedback").innerText()).includes("复制"), "copy feedback missing");
+    await setup.getByRole("tab", { name: "Switch", exact: true }).click();
+    await setup.getByText(/无需用户名或密码/).waitFor();
+    await setup.getByRole("tab", { name: "Xbox", exact: true }).click();
+    await setup.getByText(/Xbox 请使用 DNS 优选/).waitFor();
+    await setup.getByRole("tab", { name: "PlayStation", exact: true }).click();
+    assert(!(await page.locator("body").innerText()).includes("NAS"));
+    await setup.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, "proxy-desktop.png") });
+    for (const [width, height] of [[360, 640], [320, 568], [1024, 320]]) {
+      await page.setViewportSize({ width, height });
+      await setup.locator(".setup-config").scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `proxy guide ${width} overflow`);
+      await page.screenshot({ path: path.join(output, `proxy-${width}x${height}.png`) });
+      await setup.locator(".setup-guide").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(output, `proxy-guide-${width}x${height}.png`) });
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByRole("link", { name: "设置", exact: true }).click();
+    await proxyToggle.uncheck();
+    await save.click();
+    await poll(() => save.isDisabled(), "proxy disable was not saved");
+    assert.equal((await proxyRequest()).status, 503);
     assert.equal(await page.getByText(/每日预算|单节点读取上限/).count(), 0);
     const windowInput = page.getByLabel("单节点测速窗口（秒）", {
       exact: true,
@@ -334,6 +390,7 @@ async function poll(fn, message, timeout = 15000) {
         "record pagination and server filter",
         "daily summary",
         "settings shows the running backend application version",
+        "proxy enable/reload, actual forwarded bytes, platform guides/copy and disable",
         "real validation failure and save retry",
         "bad feed preserves last good / valid feed applies",
         "simple rule add and advanced field preservation",

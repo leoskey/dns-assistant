@@ -17,6 +17,7 @@ export type Rule = {
 };
 export type Config = {
   enabled: boolean;
+  proxy_enabled: boolean;
   upstreams: string[];
   allowed_cidrs: string[];
   probe_seconds: number;
@@ -70,6 +71,13 @@ export type Status = {
   applied_version: number;
   dns_connected: boolean;
   dns_address?: string;
+  proxy: {
+    enabled: boolean;
+    address: string;
+    port: number;
+    active_transfers: number;
+    downloaded_bytes: number;
+  };
   feed: FeedStatus;
   last_tests: Record<string, string>;
   uptime_seconds: number;

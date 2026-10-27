@@ -323,7 +323,7 @@ export function PlatformList({
         </table>
       </div>
       <p className="footnote">
-        速度来自 NAS
+        速度来自服务端
         测试，不代表主机实时下载速度。节点变化在客户端重新解析并建立连接后生效。
       </p>
     </>

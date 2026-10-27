@@ -65,6 +65,7 @@ type Manager struct {
 	dnsURL, token string
 	client        *http.Client
 	notify        chan struct{}
+	DownloadProxy *DownloadProxy
 }
 
 func NewManager(s *Store, dnsURL, token string) (*Manager, error) {
@@ -107,6 +108,7 @@ func NewManager(s *Store, dnsURL, token string) (*Manager, error) {
 	if e := s.SaveState(m.config, m.selections, m.version); e != nil {
 		return nil, e
 	}
+	m.DownloadProxy = newDownloadProxy(m)
 	return m, nil
 }
 func (m *Manager) Config() Config {

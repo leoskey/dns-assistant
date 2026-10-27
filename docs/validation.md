@@ -1,9 +1,30 @@
 # 当前版本验证记录
 
 
-更新：2026-10-20。实施、本地软件检查和 amd64 fnOS NAS 部署检查完成；NAS 已运行 2026.10.20-optimization-r2。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。
+更新：2026-10-27。v0.2.0 下载代理完成以下软件与本地容器检查，未发布或升级既有部署。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。后文的 2026-10-20 DNS 基线与 NAS 部署记录只代表当时的版本。
 
-## 已执行的检查
+## v0.2.0 下载代理验证
+
+| 项目 | 结果与范围 |
+| --- | --- |
+| Go 回归与 vet | 50 项顶层测试通过，含 6 项代理测试及其子场景；浏览器夹具在普通运行中跳过，单独端到端运行通过；全包 vet 通过 |
+| HTTP 转发 | 本地真实 HTTP 服务验证 Host、签名查询参数、Range／206、HEAD、流式字节、代理凭据和逐跳头清理、目标连接失败 502 |
+| HTTPS CONNECT | 本地真实 TLS 服务验证双向内容、原始 SNI／Host、有效证书；错误域名和不受信任证书仍被客户端拒绝；原始 TCP 验证随 CONNECT 一起发送的缓冲数据及退出清理 |
+| 策略与安全 | 有效／过期节点、暂停、固定、禁用规则、普通域名、优选 TCP 失败回退；非允许来源、私网／环回／特殊 IP、IPv6、非标准端口及私网 DNS 结果被拒绝；并发上限、环境代理隔离通过 |
+| 配置与兼容 | 默认关闭；保存、重启加载、备份恢复、旧配置缺字段保持关闭；SERVER_IP 优先、旧 NAS_IP 兼容、无效声明不猜测地址 |
+| 浏览器 | Chromium 使用真实 Go／SQLite／DNS／HTTP 夹具，代理启用保存与重载、实际请求转发及流量、复制地址、PS／Switch 指引、Xbox DNS 提示、关闭后拒绝新请求通过 |
+| 布局 | 五页覆盖 1280×800、1024×320、360×640、360×480、320×568，无页面横向溢出，保存区和服务状态无遮挡；代理配置与步骤另检查 360×640、320×568、1024×320，并检查桌面与手机截图 |
+| 前端与版本 | TypeScript／Vite 生产构建、2 项 Vitest、源码／前端包／锁文件／README 的 0.2.0 版本一致性通过 |
+| 编译 | Windows/amd64、CGO_ENABLED=0 的 Linux/amd64 与 Linux/arm64 通过；arm64 未运行 |
+| Linux 竞态 | Dockerfile test 阶段执行 go test -race ./...，全包通过 |
+| 容器 | linux/amd64 镜像构建；隔离的非 root、只读根目录双容器启动、健康检查、策略同步、实际内部 DNS 查询、代理默认关闭／启用后拒绝私网目标、重启保留代理设置通过；使用临时数据，最终检查关闭自动公网探测 |
+| Compose 与仓库边界 | 默认及源码覆盖 Compose 校验、SERVER_IP 优先和旧变量回退通过；截图、二进制、测试数据库和报告在忽略目录，暂存区无本机产物 |
+
+本机证据保存在忽略的 `artifacts/proxy-check/`：`go-test.jsonl`、`browser/report.json`、界面截图及 `runtime-report.json`；不随仓库克隆提供。代理协议夹具与浏览器脚本在源码中，可按后文命令重新运行。HTTP／TLS 成功转发由受控本地协议测试证明，容器检查不冒充公网 CDN 或真实主机下载验收。运行容器检查需指定 DATA_DIR=/data 并加载暂停探测的临时配置；使用随机宿主端口时，重启后重新读取 docker port。
+
+未验证：PlayStation／Switch 真机下载与提速收益、Xbox 代理接入、目标物理宿主机重启、ARM 设备运行。未执行发布、推送或现有设备升级。
+
+## 2026-10-20 DNS 基线检查
 
 | 项目 | 结果与范围 |
 | --- | --- |
@@ -42,7 +63,7 @@ go build ./cmd/dns-assistant
 
 浏览器检查脚本为 [scripts/browser-check.cjs](../scripts/browser-check.cjs)，配套夹具在 [browser_test.go](../internal/app/browser_test.go)。先执行 `go test -c -o ../work/app.test.exe ./internal/app`（其他系统可不使用 .exe 后缀），然后设置 APP_TEST_BINARY 为该文件的绝对路径、PLAYWRIGHT_MODULE 为可用 Playwright 模块路径、CHROME_PATH 为 Chromium/Chrome 可执行文件路径、BROWSER_OUTPUT_DIR 为证据目录，再运行 `node scripts/browser-check.cjs`。脚本只启动测试二进制；夹具接口不包含在生产程序中。
 
-## NAS 部署验证
+## 2026-10-20 NAS 部署验证
 
 - 现有 fnOS amd64 项目采用离线镜像 `dns-assistant:2026.10.20-optimization-r2`，保留原项目名、SERVICE_TOKEN、settings.env、端口和两个命名卷。两服务使用 pull_policy: never，日志轮换为 10 MiB × 3。
 - 在停止两个原服务后，以只读方式挂载两个数据卷归档；备份原 Compose/env，归档可读性校验通过，SHA256SUMS 和 COMPLETE 已生成。备份位于原项目的 `backups/pre-optimization-20261020/`。一次性备份容器已退出且不自动重启；原镜像保留。
@@ -52,6 +73,6 @@ go build ./cmd/dns-assistant
 
 ## 验收边界
 
-本轮镜像已离线部署 NAS，源码尚未推送，未触发 CI 或上传公共镜像仓库；GHCR latest 仍不包含本轮改动。Linux/arm64 仅完成编译，未做 ARM NAS 运行验收。合成夹具的 SQLite integrity_check 已通过；NAS 现场验证使用真实 API/DNS 和历史抽样，未直接对生产 SQLite 执行 integrity_check。三平台真实主机下载收益与 NAS 宿主机重启仍需设备验收。本地夹具截图使用测试数值；NAS 实际截图使用 NAS 测速数值，两者均不代表主机实时下载速度。
+上述 NAS 记录适用于 2026-10-20 的 DNS 离线镜像，不证明 v0.2.0 下载代理已部署。历史合成夹具的 SQLite integrity_check 已通过；现场验证使用 API/DNS 和历史抽样，未直接对生产 SQLite 执行 integrity_check。真实主机下载收益、物理宿主机重启和 ARM 运行仍需对应设备验收。后台测速及代理累计字节均不等同于真实游戏下载完成时间。
 
 [重构前的 NAS 与 CI 记录](history/pre-optimization-validation.md) 仅为历史证据。退役的预算、双地址族选优、两轮切换与备用激活不再作为当前标准。

@@ -1,19 +1,19 @@
-# NAS 部署检查与故障处理
+# 部署检查与故障处理
 
-更新：2026-10-20。执行 [README](../README.md) 中的 Compose 步骤。以下检查不修改路由器、防火墙或现有 DNS。
+更新：2026-10-27。支持 Docker 的服务器、电脑和 NAS 均可部署。执行 [README](../README.md) 中的 Compose 步骤。以下检查不修改路由器、防火墙或现有 DNS。
 
 ## 安装前
 
 1. 用 `docker version` 与 `docker compose version` 确认 daemon 和 Compose v2。
-2. NAS 通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 NAS_IP。
-3. 检查 TCP／UDP 53 和 TCP 8080 的现有占用，运行 `sh deploy/preflight.sh` 辅助诊断。
-4. Docker named volumes 位于 NAS 本地存储，不使用 NFS／SMB 作为 SQLite WAL 数据目录。
-5. 镜像运行 UID/GID 为 10001:10001。默认新命名卷继承镜像 /data 的所有权；若替换成 bind mount，预先给目录匹配的读写权限，勿把整个 NAS 目录授权给容器。
+2. 部署设备通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 SERVER_IP。旧 NAS_IP 仍可使用，同时存在时 SERVER_IP 优先。
+3. 检查 TCP／UDP 53、TCP 8080 和 TCP 8082 的现有占用，运行 `sh deploy/preflight.sh` 辅助诊断。
+4. Docker named volumes 位于本地存储，不使用 NFS／SMB 作为 SQLite WAL 数据目录。
+5. 镜像运行 UID/GID 为 10001:10001。默认新命名卷继承镜像 /data 的所有权；若替换成 bind mount，预先给目录匹配的读写权限，勿把无关目录授权给容器。
 6. 运行 keygen 生成随机服务密钥，两个容器使用同一值；保留 .env，不提交到 Git。
 7. `docker compose config --quiet` 通过后启动，`docker compose ps` 应显示两个 healthy。
-8. Compose 对外仅发布 IPv4 端口，NAS_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
+8. Compose 对外仅发布 IPv4 端口，SERVER_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
-默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取统一双架构镜像，Docker 自动匹配 amd64／arm64；无需在 NAS 编译源码。可用 `DNS_ASSISTANT_IMAGE` 固定版本或摘要。源码构建使用 `-f compose.yaml -f compose.build.yaml`，之后的启动／重启等命令保持同一组覆盖文件。
+默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取统一双架构镜像，Docker 自动匹配 amd64／arm64；无需在部署设备编译源码。可用 `DNS_ASSISTANT_IMAGE` 固定版本或摘要。源码构建使用 `-f compose.yaml -f compose.build.yaml`，之后的启动／重启等命令保持同一组覆盖文件。未发布的源码变更需源码构建后使用，不假定 latest 已包含代理功能。
 
 中国大陆访问 GHCR 缓慢时，可将 DNS_ASSISTANT_IMAGE 设为 `ghcr.nju.edu.cn/leoskey/dns-assistant:latest`，再直接 pull 与 up。现有 fnOS NAS 已验证该 GHCR 缓存路径，具体操作、摘要核对与回退方式见 [NAS 拉取加速与升级](image-release.md#nas-拉取加速与升级)。
 
@@ -21,9 +21,11 @@
 
 ## 接入
 
-浏览器打开 http://NAS_IP:8080，无需登录。管理仅用于受信任局域网，勿转发管理端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；NAS 反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。
+浏览器打开 http://SERVER_IP:8080，无需登录。管理与代理仅用于受信任局域网，勿转发这些端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。
 
-游戏主机将 DNS 设置为 NAS_IP，重新运行网络测试，观察“接入检查”中的真实来源与域名。Windows Docker Desktop 的转发可能合并来源，不能据此声称已识别每台主机。
+DNS 接入：游戏主机将 DNS 设置为 SERVER_IP，重新运行网络测试，观察“接入检查”中的真实来源与域名。Windows Docker Desktop 的转发可能合并来源，不能据此声称已识别每台主机。
+
+下载代理：在设置中启用，将支持手动代理的主机服务器地址设为 SERVER_IP，端口 8082，DNS 可保持原设置。只改 DNS 不会接入代理；没有代理设置入口的主机继续使用 DNS。关闭代理或停止 controller 前先在主机选择“不使用代理”。完整步骤和限制见 [下载代理](download-proxy.md)。
 
 有下载节点拒绝测试内容时，查看平台页与历史错误，不强制绑定该 IP。Xbox com／cn 不互换 IP；Nintendo 的联网测试地址与游戏下载不同，实际下载域名必须提供对应有效样本。
 
@@ -36,16 +38,18 @@
 | 现象 | 处理 |
 | --- | --- |
 | 53 端口占用 | 确认现有服务；不强制结束别的程序。可以为容器规划独立 IP，按 NAS 型号验证 Macvlan 支持及宿主机通信限制 |
-| 管理入口 403 | 检查访问来源网段、URL 中的 Host 与 ADMIN_HOSTS；默认直接使用 NAS 的局域网 IP |
+| 管理入口 403 | 检查访问来源网段、URL 中的 Host 与 ADMIN_HOSTS；默认直接使用部署设备的局域网 IP |
 | DNS 核心尚未连接 | 检查两个容器 healthy、SERVICE_TOKEN 一致、内部网络与日志；策略定期重传 |
 | 测试样本过短 | 使用同域名且足够覆盖窗口的下载文件；不使用小文件或错误页面计算速度 |
 | 规则表同步失败 | 查看设置中的错误；确认最终公网 HTTPS 地址、证书及 JSON 格式，原可用规则继续保留 |
 | 403／404／内容不足 | 目标 CDN 或样本不可用；保留普通解析，替换真实同域名内容样本再测 |
-| 没有主机查询 | 确认主机 DNS、访客网络隔离、NAS 防火墙和端口发布 |
+| 没有主机查询 | 确认主机 DNS、访客网络隔离、宿主机防火墙和端口发布；代理方式不要求产生本服务 DNS 查询 |
+| 代理无法连接／503 | 确认 TCP 8082 已发布、代理已启用、来源网段允许；活动请求达到 64 时等待或减少并发 |
+| 代理 400／502 | 检查目标是否为公网 IPv4、HTTP 80／CONNECT 443，及配置的上游 DNS 与源站连通性；私网目标被拒绝 |
 | 未使用预期节点 | 检查客户端是否使用其他 DNS、HTTPS／SVCB 地址提示或仍保持旧连接；DNS 不会重建现有下载连接 |
 | 数据卷不可写 | 检查 UID/GID 和本地文件系统；修复后重启，避免使用 privileged 绕过 |
-| 停止或升级 NAS | 先确认其他解析路径或把主机 DNS 改回自动；升级前导出配置并保留两个数据卷 |
+| 停止或升级服务 | 先把主机代理恢复为不使用，DNS 恢复自动或切换可用服务；升级前导出配置并保留两个数据卷 |
 
 ## 实机记录
 
-按 [验收矩阵](acceptance.md) 填写 NAS 型号／系统／架构、家宽运营商、路由模式、主机型号、IPv4 接入、测试内容、时段、默认 DNS／优选 DNS 多轮完成时间与失败次数。Docker Desktop 通过不能代替该记录。
+按 [验收矩阵](acceptance.md) 填写部署设备系统／架构（NAS 部署可补充品牌型号）、家宽运营商、路由模式、主机型号、IPv4 接入、测试内容、时段、默认 DNS／优选 DNS 或直连／代理多轮完成时间与失败次数。Docker Desktop 通过不能代替目标设备和真实主机记录。

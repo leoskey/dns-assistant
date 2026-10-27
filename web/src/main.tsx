@@ -36,7 +36,7 @@ import {
   Download,
   Upload,
 } from "lucide-react";
-import { api, date, active, type Config, type Status } from "./api";
+import { api, date, active, bytes, type Config, type Status } from "./api";
 import "./style.css";
 type ContextValue = {
   status: Status | null;
@@ -236,7 +236,7 @@ function Overview() {
     <>
       <Title
         title="网络总览"
-        sub="查看解析状态、平台下载节点与后台测速用量。"
+        sub="查看解析、下载代理与平台优选状态。"
       />
       <section className="network-board">
         <div className="board-intro">
@@ -261,7 +261,10 @@ function Overview() {
                 : "服务已可正常解析。有效下载节点会在自动检测通过后显示。"}
           </p>
         </div>
-        <div className="route-diagram" aria-label="主机经本地 DNS 选择 CDN">
+        <div
+          className="route-diagram"
+          aria-label="主机通过 DNS 优选或下载代理使用 CDN"
+        >
           <div>
             <Gamepad2 aria-hidden="true" />
             游戏主机
@@ -269,7 +272,7 @@ function Overview() {
           <i />
           <div className="route-middle">
             <Mark />
-            家庭 DNS
+            本地服务
           </div>
           <i />
           <div>
@@ -300,7 +303,26 @@ function Overview() {
       <ConsoleSetup
         address={status.dns_address}
         connected={status.dns_connected}
+        proxy={status.proxy}
       />
+      <section className="rule" aria-labelledby="proxy-status-title">
+        <div className="section-heading">
+          <h2 id="proxy-status-title">下载代理</h2>
+          <NavLink to="/settings">
+            {status.proxy.enabled ? "管理代理" : "前往启用"}
+            <ArrowUpRight aria-hidden="true" />
+          </NavLink>
+        </div>
+        <p>
+          {status.proxy.enabled ? "已启用" : "未启用"}，
+          {status.proxy.active_transfers} 个请求或隧道正在转发，本次运行累计下行{" "}
+          {bytes(status.proxy.downloaded_bytes)}。
+        </p>
+        <p className="muted">
+          流量包含协议开销，服务重启后重新累计；HTTPS
+          隧道不显示游戏名称或下载进度。
+        </p>
+      </section>
       <div className="section-heading">
         <h2>平台下载节点</h2>
         <NavLink to="/platforms">
@@ -314,7 +336,7 @@ function Overview() {
         ))}
       </div>
       <p className="footnote">
-        探测速度来自 NAS
+        探测速度来自服务端
         测试，不代表主机实时下载速度。节点切换在重新解析和建立连接后生效。
       </p>
     </>
@@ -412,7 +434,7 @@ function Connection() {
         {check && (
           <div className="check-result">
             <strong>
-              {check.rcode} · {check.duration_ms} ms
+              {check.rcode}，{check.duration_ms} ms
             </strong>
             {check.answers.length ? (
               check.answers.map((v, i) => <pre key={i}>{v}</pre>)
@@ -495,13 +517,13 @@ function Settings() {
     <>
       <Title
         title="设置"
-        sub="设置低频测试与下载规则。保存前会检查完整配置。"
+        sub="设置解析、下载代理、自动测试与规则。保存前会检查完整配置。"
       />
       {status?.app_version && (
         <p className="muted" data-testid="app-version">
           当前版本 v{status.app_version}
           {status.app_revision !== "unknown" &&
-            ` · ${status.app_revision.slice(0, 7)}`}
+            ` (${status.app_revision.slice(0, 7)})`}
         </p>
       )}
       <form id="settings-form" onSubmit={save}>
@@ -509,7 +531,7 @@ function Settings() {
           <section className="settings-section">
             <div>
               <h2>解析与访问</h2>
-              <p>普通域名使用这些上游。请勿填写 NAS 自身的 DNS 地址。</p>
+              <p>普通域名使用这些上游。请勿填写服务自身的 DNS 地址。</p>
             </div>
             <div className="fields">
               <label>
@@ -539,6 +561,31 @@ function Settings() {
                   onChange={(e) => field("timezone", e.target.value)}
                 />
               </label>
+            </div>
+          </section>
+          <section className="settings-section">
+            <div>
+              <h2>下载代理</h2>
+              <p>
+                主机手动接入 HTTP 代理，HTTPS
+                保持端到端加密。有效优选用于新建连接，其余目标正常转发。
+              </p>
+            </div>
+            <div className="fields">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={config.proxy_enabled}
+                  onChange={(e) => field("proxy_enabled", e.target.checked)}
+                />
+                启用下载代理
+              </label>
+              <p className="muted">
+                端口 8082，仅允许配置的局域网来源。地址与主机设置步骤见首页。
+              </p>
+              <p className="muted">
+                关闭后拒绝新请求，已建立的传输继续到结束。关闭或停止服务前，请先将主机代理设置恢复为不使用。
+              </p>
             </div>
           </section>
           <section className="settings-section">
@@ -640,7 +687,7 @@ function Settings() {
                 !status.feed.success.startsWith("0001")
                   ? date(status.feed.success)
                   : "尚未同步"}{" "}
-                · 版本：{status?.feed?.version || config.rule_version}
+                ，版本：{status?.feed?.version || config.rule_version}
               </p>
               {status?.feed?.error && (
                 <p className="error" role="alert">

@@ -1,6 +1,6 @@
 # 实现与技术选型
 
-更新：2026-10-20。有效规格：[需求](../requirements.md)、[验收矩阵](../acceptance.md)。实际测试结果见 [验证记录](../validation.md)。
+更新：2026-10-27。有效规格：[需求](../requirements.md)、[验收矩阵](../acceptance.md)。实际测试结果见 [验证记录](../validation.md)。
 
 ## 当前技术
 
@@ -30,9 +30,13 @@ flowchart LR
     Controller --> DB[(SQLite)]
     DNS --> Snapshot[策略快照]
     Device -->|下载数据| CDN
+    Device -->|可选 HTTP / CONNECT 8082| Controller
+    Controller -->|有效优选或正常解析| CDN
 ```
 
-DNS 子命令在容器内监听 5353，Compose 发布宿主机 53/TCP 和 53/UDP；策略接口 9090 不发布到宿主机。controller 提供 Web 8080 与内部观察入口 8081，只有 Web 发布到指定 NAS_IP。
+DNS 子命令在容器内监听 5353，Compose 发布宿主机 53/TCP 和 53/UDP；策略接口 9090 不发布到宿主机。controller 提供 Web 8080、下载代理 8082 与内部观察入口 8081，只有 Web 与代理发布到指定 SERVER_IP。旧 NAS_IP 为兼容入口。
+
+下载代理使用标准库 httputil.ReverseProxy 转发 HTTP，使用 TCP 双向复制建立 CONNECT 隧道。新源站连接读取管理进程当前有效策略；不可用时复用已有上游解析器寻找公网 IPv4。HTTP 连接可复用，现有连接不随策略迁移。流量计数在源站连接读取处累加，包含协议开销，不写 SQLite。并发请求／隧道上限 64，退出上下文关闭已劫持的隧道。HTTPS 证书由客户端与源站端到端验证，代理不解密。
 
 SQLite 保存配置、IPv4 策略、版本、持久调度、同步状态、接入与探测明细、事件及每日汇总。配置与策略相关状态事务提交后更新内存。schema 1/2 升级到 3，新增 daily 汇总并删除预算表，拒绝未来 schema。测速结果与汇总在同一事务写入；汇总按 UTC 日/域名分组，保留 90 天/10,000 行。
 四个记录接口用最大 ID 作为分页快照，在同一读取事务中计算总数并取页；新增记录不影响既有快照，清理后超出范围的页码收敛到末页。记录写入事务同时按递增 ID 限制条数，查询／结果／事件分别最多 10,000／5,000／500 条。独立维护任务在 controller 启动及每小时执行时间与数量清理，保留窗口分别为 7／30／30 天，并尝试截断 WAL；已释放 SQLite 页面供后续写入复用。维护任务随 controller 上下文退出，与测速 worker 是否运行、成功无关。DNS 仍仅通过有界异步观察队列上报，不直接读写 SQLite。
@@ -74,6 +78,7 @@ cmd/dns-assistant/main.go  命令、启动、健康检查与退出
 internal/app/types.go     配置、规则和策略模型、校验
 internal/app/dns.go       DNS 适配、快照、内部策略接口
 internal/app/probe.go     受限 HTTP／TLS 探测
+internal/app/download_proxy.go HTTP 转发、CONNECT 隧道与流量计数
 internal/app/selection.go 选择与切换状态机
 internal/app/manager.go   调度、去重和策略发布
 internal/app/store.go     SQLite 事务、记录与汇总
@@ -81,7 +86,7 @@ internal/app/http.go      管理 API、来源校验与 SSE
 internal/app/app_test.go  协议、HTTP、事务、故障与安全测试
 internal/ui/             内嵌 Web 资源
 web/src/                 React 界面与状态呈现测试
-deploy/                  NAS 安装前检查脚本
+deploy/                  安装前检查脚本
 ```
 
 小型应用将业务代码保留在一个 app 包，避免在需求尚未扩大时拆出重复接口。已锁定依赖与基础镜像摘要；第三方许可文本随镜像保存。镜像、模拟运行、NAS 和真实主机证据分别记录。

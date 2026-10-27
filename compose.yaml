@@ -5,12 +5,12 @@ services:
     command: ["dns"]
     environment:
       SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
-      NAS_IP: ${NAS_IP:?请先设置NAS固定局域网IP}
+      SERVER_IP: ${SERVER_IP:-${NAS_IP:?请设置SERVER_IP为固定局域网IPv4}}
       DATA_DIR: /data
       MANAGER_INTERNAL_URL: http://controller:8081
     ports:
-      - "${NAS_IP:?请先设置NAS固定局域网IP}:53:5353/udp"
-      - "${NAS_IP:?请先设置NAS固定局域网IP}:53:5353/tcp"
+      - "${SERVER_IP:-${NAS_IP:?请设置SERVER_IP为固定局域网IPv4}}:53:5353/udp"
+      - "${SERVER_IP:-${NAS_IP:?请设置SERVER_IP为固定局域网IPv4}}:53:5353/tcp"
     volumes:
       - dns-state:/data
     read_only: true
@@ -34,12 +34,13 @@ services:
     command: ["controller"]
     environment:
       SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
-      NAS_IP: ${NAS_IP:?请先设置NAS固定局域网IP}
+      SERVER_IP: ${SERVER_IP:-${NAS_IP:?请设置SERVER_IP为固定局域网IPv4}}
       DATA_DIR: /data
       DNS_CONTROL_URL: http://dns:9090
       ADMIN_HOSTS: ${ADMIN_HOSTS:-}
     ports:
-      - "${NAS_IP:?请先设置NAS固定局域网IP}:8080:8080"
+      - "${SERVER_IP:-${NAS_IP:?请设置SERVER_IP为固定局域网IPv4}}:8080:8080"
+      - "${SERVER_IP:-${NAS_IP:?请设置SERVER_IP为固定局域网IPv4}}:8082:8082"
     volumes:
       - controller-state:/data
     read_only: true

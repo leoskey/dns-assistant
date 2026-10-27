@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { ArrowRight, Check, Copy, Gamepad2, Network } from "lucide-react";
+import type { Status } from "./api";
 
 const guides = {
   PS5: {
@@ -48,19 +49,49 @@ const guides = {
 export function ConsoleSetup({
   address,
   connected,
+  proxy,
 }: {
   address?: string;
   connected: boolean;
+  proxy: Status["proxy"];
 }) {
+  const [mode, setMode] = useState<"dns" | "proxy">("dns");
   const [platform, setPlatform] = useState("PlayStation");
   const [model, setModel] = useState<"PS5" | "PS4">("PS5");
   const [feedback, setFeedback] = useState("");
   const field = useRef<HTMLInputElement>(null);
   const choices = ["PlayStation", "Xbox", "Switch"];
-  const guide =
+  const dnsGuide =
     guides[
       platform === "PlayStation" ? model : (platform as "Xbox" | "Switch")
     ];
+  const proxySteps =
+    platform === "Xbox"
+      ? [
+          "Xbox 请使用 DNS 优选，切换接入方式后查看设置步骤。",
+          "只修改 DNS 不会让下载流量经过此代理。",
+        ]
+      : [
+          platform === "Switch"
+            ? "打开当前网络的更改设置，找到代理设置并选择使用。"
+            : "打开当前网络的高级或自定义设置，在代理服务器中选择使用。",
+          "服务器填写上方 IP，端口填写 8082；无需用户名或密码，也不需要安装证书。",
+          "保存后测试互联网连接，再重新建立下载连接。DNS 可保留原设置。",
+        ];
+  const guide =
+    mode === "dns"
+      ? dnsGuide
+      : {
+          path:
+            platform === "Xbox"
+              ? "Xbox 使用 DNS 优选接入"
+              : dnsGuide.path + " → 代理设置",
+          steps: proxySteps,
+          source:
+            platform === "Switch"
+              ? "https://en-americas-support.nintendo.com/app/answers/detail/a_id/22316/"
+              : dnsGuide.source,
+        };
   useEffect(() => {
     if (!feedback) return;
     const timer = setTimeout(() => setFeedback(""), 4000);
@@ -72,17 +103,17 @@ export function ConsoleSetup({
       if (!navigator.clipboard?.writeText)
         throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(address);
-      setFeedback("DNS 地址已复制");
+      setFeedback("地址已复制");
     } catch {
       field.current?.focus();
       field.current?.select();
-      // NAS HTTP pages may lack Clipboard API access; retain selection if copying is denied.
+      // Plain HTTP pages may lack Clipboard API access; retain selection if copying is denied.
       let copied = false;
       try {
         copied = document.execCommand("copy");
       } catch {}
       setFeedback(
-        copied ? "DNS 地址已复制" : "地址已选中，请长按或按 Ctrl/Cmd+C 复制",
+        copied ? "地址已复制" : "地址已选中，请长按或按 Ctrl/Cmd+C 复制",
       );
     }
   }
@@ -94,16 +125,32 @@ export function ConsoleSetup({
             <Gamepad2 aria-hidden="true" />
             连接你的主机
           </h2>
-          <p>让主机和 NAS 连接同一家庭网络，然后在主机上手动设置 DNS。</p>
+          <p>让主机和运行服务的设备连接同一局域网，选择一种接入方式。</p>
         </div>
-        <NavLink className="button" to="/connection">
+        <NavLink className="button" to={mode === "dns" ? "/connection" : "/settings"}>
           <Network aria-hidden="true" />
-          检查接入
+          {mode === "dns" ? "检查接入" : "代理设置"}
         </NavLink>
       </div>
       <div className="setup-grid">
         <div className="setup-config">
-          <label htmlFor="console-dns">主 DNS / 首选 DNS</label>
+          <label className="guide-model">
+            接入方式
+            <select
+              aria-label="接入方式"
+              value={mode}
+              onChange={(e) => {
+                setMode(e.target.value as "dns" | "proxy");
+                setFeedback("");
+              }}
+            >
+              <option value="dns">DNS 优选</option>
+              <option value="proxy">下载代理</option>
+            </select>
+          </label>
+          <label htmlFor="console-dns">
+            {mode === "dns" ? "主 DNS / 首选 DNS" : "代理服务器"}
+          </label>
           {address ? (
             <>
               <div className="dns-copy">
@@ -118,9 +165,9 @@ export function ConsoleSetup({
                 <button
                   type="button"
                   onClick={() => void copy()}
-                  aria-label="复制 DNS 地址"
+                  aria-label={mode === "dns" ? "复制 DNS 地址" : "复制代理地址"}
                 >
-                  {feedback === "DNS 地址已复制" ? (
+                  {feedback === "地址已复制" ? (
                     <Check aria-hidden="true" />
                   ) : (
                     <Copy aria-hidden="true" />
@@ -134,41 +181,60 @@ export function ConsoleSetup({
             </>
           ) : (
             <p className="setup-warning" role="status">
-              尚未配置主机可用的 DNS 地址。请在部署配置中将 NAS_IP 设为 NAS
-              的固定局域网 IP，并重建管理容器。
+              尚未配置主机可用的服务地址。请检查部署时声明的固定局域网 IP。
             </p>
           )}
           <dl className="setup-facts">
             <div>
-              <dt>DNS 设置</dt>
+              <dt>{mode === "dns" ? "DNS 设置" : "代理设置"}</dt>
               <dd>手动</dd>
             </div>
             <div>
               <dt>标准端口</dt>
-              <dd>53（UDP / TCP）</dd>
+              <dd>
+                {mode === "dns" ? "53（UDP / TCP）" : `${proxy.port}（TCP）`}
+              </dd>
             </div>
             <div>
               <dt>服务状态</dt>
               <dd>
-                <span className={"dot " + (connected ? "on" : "")} />
-                {connected ? "DNS 核心已连接" : "DNS 核心尚未连接"}
+                <span
+                  className={
+                    "dot " +
+                    ((mode === "dns" ? connected : proxy.enabled) ? "on" : "")
+                  }
+                />
+                {mode === "dns"
+                  ? connected
+                    ? "DNS 核心已连接"
+                    : "DNS 核心尚未连接"
+                  : proxy.enabled
+                    ? "下载代理已启用"
+                    : "下载代理未启用"}
               </dd>
             </div>
           </dl>
-          <details className="secondary-guide">
-            <summary>备用 DNS 怎么填？</summary>
-            <p>
-              允许留空时留空。必须填写且主机允许相同地址时，可填入上方
-              IP；这不提供另一台服务器的故障冗余。
+          {mode === "dns" ? (
+            <details className="secondary-guide">
+              <summary>备用 DNS 怎么填？</summary>
+              <p>
+                允许留空时留空。必须填写且主机允许相同地址时，可填入上方
+                IP；这不提供另一台服务器的故障冗余。
+              </p>
+              <p>
+                也可使用另一台运行相同规则的局域网 DNS。填写公共备用 DNS
+                可能让部分查询绕过选优。
+              </p>
+            </details>
+          ) : (
+            <p className="muted">
+              使用优选节点不需要再修改主机
+              DNS。普通目标正常转发，代理不会自动接管未配置设备的流量。
             </p>
-            <p>
-              也可使用另一台运行相同规则的局域网 DNS。填写公共备用 DNS
-              可能让部分查询绕过选优。
-            </p>
-          </details>
-          {!connected && (
+          )}
+          {mode === "dns" && !connected && (
             <p className="setup-warning">
-              先确认 NAS 的 DNS 容器已启动，再修改主机设置。
+              先确认 DNS 服务已启动，再修改主机设置。
             </p>
           )}
         </div>
@@ -229,33 +295,40 @@ export function ConsoleSetup({
                 </select>
               </label>
             )}
-            <div className="guide-content" key={platform + model}>
+            <div className="guide-content" key={mode + platform + model}>
               <p className="guide-path">{guide.path}</p>
               <ol className="guide-steps">
                 {guide.steps.map((step) => (
                   <li key={step}>{step.replace("左侧", "上方")}</li>
                 ))}
               </ol>
-              <a
-                className="guide-source"
-                href={guide.source}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {platform === "Xbox" ? "Epic Games 设置说明" : "官方设置说明"}
-                <ArrowRight aria-hidden="true" />
-              </a>
+              {!(mode === "proxy" && platform === "Xbox") && (
+                <a
+                  className="guide-source"
+                  href={guide.source}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {platform === "Xbox" ? "Epic Games 设置说明" : "官方设置说明"}
+                  <ArrowRight aria-hidden="true" />
+                </a>
+              )}
             </div>
           </div>
         </div>
       </div>
       <div className="setup-footer">
         <p>
-          保存后，在“接入检查”确认出现主机或路由器的查询。网络测试通过不代表游戏下载已提速。
+          {mode === "dns"
+            ? "保存后，在“接入检查”确认出现主机或路由器的查询。"
+            : "开始下载后，查看首页的转发数量与累计下行流量，确认流量经过代理。"}
+          网络测试通过不代表游戏下载已提速。
         </p>
         <p>
-          NAS 停机或无法联网时，将主机 DNS
-          改回自动并重新测试。菜单名称可能随系统语言和版本变化。
+          {mode === "dns"
+            ? "服务停机或无法联网时，将主机 DNS 改回自动并重新测试。"
+            : "代理关闭或服务停机前，将主机代理设置改为不使用，再测试网络连接。"}
+          菜单名称可能随系统语言和版本变化。
         </p>
       </div>
     </section>

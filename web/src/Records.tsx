@@ -100,7 +100,7 @@ function Pager<T>({ records }: { records: ReturnType<typeof useRecords<T>> }) {
       <div className="record-pagination" aria-label="记录分页">
         <span aria-live="polite">
           {data
-            ? `共 ${data.total} 条 · 第 ${data.page} / ${data.pages} 页`
+            ? `共 ${data.total} 条，第 ${data.page} / ${data.pages} 页`
             : busy
               ? "正在读取记录…"
               : "记录读取失败"}

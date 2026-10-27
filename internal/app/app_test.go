@@ -459,6 +459,7 @@ func testAPI(t *testing.T) (*API, http.Handler) {
 
 func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 	_, h := testAPI(t)
+	t.Setenv("SERVER_IP", "")
 	for _, tc := range []struct{ configured, want string }{
 		{"192.168.2.100", "192.168.2.100"},
 		{" 192.168.2.100 ", "192.168.2.100"},
