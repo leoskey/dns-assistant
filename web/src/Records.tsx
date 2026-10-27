@@ -244,7 +244,7 @@ function Results({ filter }: { filter: string }) {
   );
 }
 
-function Events() {
+export function Events() {
   const records = useRecords<EventRecord>("history/events");
   return (
     <section aria-label="运行与切换记录" aria-busy={records.busy}>
@@ -269,7 +269,6 @@ export function HistoryRecords() {
   const [filter, setFilter] = useState("all");
   return (
     <>
-      <DailyRecords />
       <div className="filter">
         <label htmlFor="result-filter">显示</label>
         <select
@@ -284,76 +283,6 @@ export function HistoryRecords() {
         </select>
       </div>
       <Results key={filter} filter={filter} />
-      <Events />
     </>
-  );
-}
-
-type Daily = {
-  day: string;
-  domain: string;
-  tests: number;
-  failures: number;
-  health_checks: number;
-  health_failures: number;
-  average_mbps: number;
-  peak_mbps: number;
-  bytes: number;
-  switches: number;
-};
-function DailyRecords() {
-  const records = useRecords<Daily>("history/daily");
-  return (
-    <section aria-label="每日汇总" aria-busy={records.busy}>
-      <h2 className="section-heading">每日汇总</h2>
-      <p className="muted">
-        按 UTC
-        日期汇总测试；明细清理后仍保留趋势。平均速度仅统计成功的完整测速窗口。
-      </p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>日期与域名</th>
-              <th>平均 / 最高速度</th>
-              <th>测速失败 / 总数</th>
-              <th>健康失败 / 总数</th>
-              <th>启用 / 切换次数</th>
-              <th>读取用量</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.data?.items.map((d) => (
-              <tr key={`${d.day}-${d.domain}`}>
-                <td>
-                  <strong>{d.day}</strong>
-                  <small>{d.domain}</small>
-                </td>
-                <td>
-                  {d.average_mbps.toFixed(1)} / {d.peak_mbps.toFixed(1)} Mbps
-                </td>
-                <td>
-                  {d.failures} / {d.tests}
-                </td>
-                <td>
-                  {d.health_failures} / {d.health_checks}
-                </td>
-                <td>{d.switches}</td>
-                <td>{bytes(d.bytes)}</td>
-              </tr>
-            ))}
-            {records.data?.items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty">
-                  暂无每日汇总，首次测试后开始记录。
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <Pager records={records} />
-      <h2 className="section-heading">测试明细</h2>
-    </section>
   );
 }

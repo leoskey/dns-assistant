@@ -251,7 +251,7 @@ export function ConsoleSetup({
       </div>
       <div className="setup-footer">
         <p>
-          保存后，在“接入检查”确认出现主机或路由器的查询。网络测试通过不代表游戏下载已提速。
+          保存后，在“解析历史”确认出现主机或路由器的查询。网络测试通过不代表游戏下载已提速。
         </p>
         <p>
           NAS 停机或无法联网时，将主机 DNS

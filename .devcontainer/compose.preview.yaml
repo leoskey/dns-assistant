@@ -1,0 +1,27 @@
+name: dns-assistant-cloud-preview
+services:
+  controller:
+    build:
+      context: ..
+    command: [controller]
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?}
+      DATA_DIR: /data
+      DNS_CONTROL_URL: http://dns:9090
+      ADMIN_HOSTS: ${ADMIN_HOSTS:-localhost}
+    ports: ["8088:8080"]
+    volumes: ["preview-controller:/data"]
+    restart: unless-stopped
+  dns:
+    build:
+      context: ..
+    command: [dns]
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?}
+      DATA_DIR: /data
+      MANAGER_INTERNAL_URL: http://controller:8081
+    volumes: ["preview-dns:/data"]
+    restart: unless-stopped
+volumes:
+  preview-controller:
+  preview-dns:

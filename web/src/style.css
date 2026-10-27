@@ -1561,3 +1561,38 @@ details summary {
     flex-basis: 100%;
   }
 }
+
+.dns-check-dialog {
+  width: min(560px, calc(100vw - 40px));
+  max-height: calc(100dvh - 48px);
+  box-sizing: border-box;
+  padding: 24px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  color: inherit;
+  box-shadow: 0 24px 80px #0003;
+}
+.dns-check-dialog::backdrop { background: #0f172a66; }
+.dns-check-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.dns-check-heading h2 { margin: 0; }
+.dns-check-dialog .check-result pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.github-link {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px #0f172a12;
+}
+.github-link:hover { color: #0f172a; background: #f8fafc; }
+.github-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+body:has(.save-bar) .github-link { bottom: 96px; }

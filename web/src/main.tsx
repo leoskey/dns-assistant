@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useRef,
   useState,
   createContext,
   useContext,
@@ -7,7 +8,7 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
-import { QueryRecords, HistoryRecords } from "./Records";
+import { QueryRecords, HistoryRecords, Events } from "./Records";
 import {
   BrowserRouter,
   NavLink,
@@ -17,7 +18,6 @@ import {
 } from "react-router-dom";
 import { ConsoleSetup } from "./ConsoleSetup";
 import { PlatformList } from "./PlatformList";
-import { RuleListEditor } from "./RuleListEditor";
 import {
   Activity,
   ArrowUpRight,
@@ -106,9 +106,10 @@ function App() {
               {(
                 [
                   ["/", "网络总览", LayoutDashboard],
-                  ["/platforms", "平台选优", Gamepad2],
-                  ["/connection", "接入检查", Network],
+                  ["/platforms", "节点列表", Gamepad2],
+                  ["/connection", "解析历史", Network],
                   ["/history", "测速记录", HistoryIcon],
+                  ["/events", "运行与切换记录", Activity],
                   ["/settings", "设置", Settings2],
                 ] as const
               ).map(([to, label, Icon]) => (
@@ -168,6 +169,9 @@ function App() {
             <PageRoutes />
           </main>
         </div>
+        <a className="github-link" href="https://github.com/leoskey/dns-assistant" target="_blank" rel="noopener noreferrer" aria-label="在新标签页打开 DNS Assistant GitHub 项目" title="GitHub · DNS Assistant">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.104.768-.244.768-.542 0-.267-.01-.975-.015-1.914-3.13.68-3.791-1.508-3.791-1.508-.512-1.3-1.25-1.647-1.25-1.647-1.023-.7.077-.686.077-.686 1.132.08 1.728 1.162 1.728 1.162 1.006 1.725 2.64 1.227 3.283.938.102-.729.394-1.227.716-1.509-2.499-.284-5.126-1.25-5.126-5.563 0-1.229.439-2.234 1.16-3.021-.116-.285-.503-1.429.11-2.978 0 0 .945-.303 3.094 1.154A10.78 10.78 0 0 1 12 6.18c.956.004 1.919.13 2.818.379 2.148-1.457 3.09-1.154 3.09-1.154.615 1.549.228 2.693.112 2.978.723.787 1.158 1.792 1.158 3.021 0 4.324-2.631 5.276-5.138 5.555.404.35.764 1.042.764 2.1 0 1.516-.014 2.739-.014 3.111 0 .3.203.65.774.54A11.252 11.252 0 0 0 12 .75Z" /></svg>
+        </a>
       </BrowserRouter>
     </Ctx.Provider>
   );
@@ -184,6 +188,7 @@ function PageRoutes() {
         <Route path="/platforms" element={<Platforms />} />
         <Route path="/connection" element={<Connection />} />
         <Route path="/history" element={<History />} />
+        <Route path="/events" element={<><Title title="运行与切换记录" sub="查看服务运行事件与节点切换记录。" /><Events /></>} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Overview />} />
       </Routes>
@@ -366,6 +371,7 @@ function Platforms() {
   return <PlatformList {...useApp()} />;
 }
 function Connection() {
+  const checkDialog = useRef<HTMLDialogElement>(null);
   const { message } = useApp(),
     [domain, setDomain] = useState("xvcf1.xboxlive.com"),
     [check, setCheck] = useState<{
@@ -376,12 +382,12 @@ function Connection() {
     [busy, setBusy] = useState(false);
   return (
     <>
-      <Title
-        title="接入检查"
-        sub="检查下载域名的解析结果，查看最近收到的 DNS 请求。"
-      />
-      <section className="rule">
-        <h2>检查实际 DNS 应答</h2>
+      <div className="page-title">
+        <div><h1>解析历史</h1><p>查看最近收到的 DNS 请求及解析记录。</p></div>
+        <button className="primary" onClick={() => checkDialog.current?.showModal()}>检查实际 DNS 应答</button>
+      </div>
+      <dialog ref={checkDialog} className="dns-check-dialog" aria-labelledby="dns-check-title" onClick={e => { if (e.target === e.currentTarget) { const rect = e.currentTarget.getBoundingClientRect(); if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close(); } }}>
+        <div className="dns-check-heading"><h2 id="dns-check-title">检查实际 DNS 应答</h2><button type="button" aria-label="关闭弹窗" onClick={() => checkDialog.current?.close()}><X aria-hidden="true" /></button></div>
         <form
           className="check-form"
           onSubmit={async (e) => {
@@ -421,7 +427,7 @@ function Connection() {
             )}
           </div>
         )}
-      </section>
+      </dialog>
       <h2 className="section-heading">最近收到的查询</h2>
       <p className="muted">
         在主机上运行网络测试后查看来源和域名；通过路由器转发时，来源可能只显示路由器。配置方法见首页主机指引。
@@ -647,28 +653,6 @@ function Settings() {
                   {status.feed.error}；继续使用上次可用规则。
                 </p>
               )}
-            </div>
-          </section>
-          <section className="settings-section">
-            <div>
-              <h2>平台下载规则</h2>
-              <p>
-                每个域名必须有自己的有效测试样本。内置规则会逐域名验证下载样本；只有验证通过的域名才会应用节点。Nintendo
-                联网检测与游戏下载应分别配置样本。
-              </p>
-              <p>
-                填写测试下载地址即可，域名自动识别。候选 IP
-                与内容检查放在高级选项中。
-              </p>
-            </div>
-            <div className="fields">
-              <RuleListEditor
-                value={rules}
-                onChange={(v) => {
-                  setRules(v);
-                  setError("");
-                }}
-              />
             </div>
           </section>
         </fieldset>
