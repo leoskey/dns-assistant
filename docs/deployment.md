@@ -5,18 +5,20 @@
 
 ## 安装前
 
+接入地址统一使用 `SERVER_IP`。从 v0.3.0 之前的版本升级时，在原 `.env` 中设置 `SERVER_IP=本机固定局域网IPv4`，再更改镜像版本并执行配置校验；旧地址变量不再识别，缺少新变量会阻止 Compose 启动。服务密钥与两个数据卷保持原值，无需迁移数据库。Windows 使用 `-ip` 参数的启动方式不变；自行设置过地址环境变量的用户也需要改用 `SERVER_IP`。
+
 无需 Docker 的 Windows x64 安装程序和便携版见 [Windows 单机安装](windows.md)。两种方式独立选择，不要在同一 IP 上同时占用 53 和 8080。
 
 1. 用 `docker version` 与 `docker compose version` 确认 daemon 和 Compose v2。
-2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 NAS_IP。
+2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 SERVER_IP。
 3. 检查 TCP／UDP 53 和 TCP 8080 的现有占用，运行 `sh deploy/preflight.sh` 辅助诊断。
 4. Docker named volumes 位于服务主机本地存储，不使用 NFS／SMB 作为 SQLite WAL 数据目录。
 5. 镜像运行 UID/GID 为 10001:10001。默认新命名卷继承镜像 /data 的所有权；若替换成 bind mount，预先给目录匹配的读写权限，勿把整个服务主机目录授权给容器。
 6. 运行 keygen 生成随机服务密钥，两个容器使用同一值；保留 .env，不提交到 Git。
 7. 按选定部署方式执行 Compose 配置校验并启动，两个服务均应显示 healthy。
-8. Compose 对外仅发布 IPv4 端口，NAS_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
+8. Compose 对外仅发布 IPv4 端口，SERVER_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
-`.env.example` 将 `DNS_ASSISTANT_IMAGE` 固定为当前源码版本 0.2.0；省略该变量时，`compose.yaml` 才回退至 `latest`。Docker 按 manifest 匹配 amd64／arm64，也可固定完整摘要。[README](../README.md) 的快速部署使用预构建镜像。需要构建检出的源码时使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
+`.env.example` 将 `DNS_ASSISTANT_IMAGE` 固定为当前源码版本 0.3.0；省略该变量时，`compose.yaml` 才回退至 `latest`。Docker 按 manifest 匹配 amd64／arm64，也可固定完整摘要。[README](../README.md) 的快速部署使用预构建镜像。需要构建检出的源码时使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
 
 中国大陆访问 GHCR 缓慢时，可按 [镜像拉取与升级](image-release.md#镜像拉取与升级) 检查缓存入口的可达性与摘要，再选择拉取路径。
 
@@ -24,9 +26,9 @@
 
 ## 接入
 
-浏览器打开 http://NAS_IP:8080，无需登录。管理仅用于受信任局域网，勿转发管理端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；服务主机反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。
+浏览器打开 http://SERVER_IP:8080，无需登录。管理仅用于受信任局域网，勿转发管理端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；服务主机反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。
 
-游戏主机将 DNS 设置为 NAS_IP，重新运行网络测试，观察“接入检查”中的真实来源与域名。Windows Docker Desktop 的转发可能合并来源，不能据此声称已识别每台主机。
+游戏主机将 DNS 设置为 SERVER_IP，重新运行网络测试，观察“接入检查”中的真实来源与域名。Windows Docker Desktop 的转发可能合并来源，不能据此声称已识别每台主机。
 
 有下载节点拒绝测试内容时，查看平台页与历史错误，不强制绑定该 IP。Xbox com／cn 不互换 IP；Nintendo 的联网测试地址与游戏下载不同，实际下载域名必须提供对应有效样本。
 

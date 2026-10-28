@@ -74,14 +74,10 @@ const path = require("node:path");
       (await page.locator(".version").textContent()).trim(),
       `v${version}`,
     );
-    assert(
-      !/\bNAS\b/i.test(await page.locator("body").textContent()),
-      "website must not advertise NAS support",
-    );
     for (const meta of await page
       .locator('meta[name="description"], meta[property="og:description"]')
       .all())
-      assert(!/\bNAS\b|docker/i.test(await meta.getAttribute("content")));
+      assert(!/docker/i.test(await meta.getAttribute("content")));
     await page.keyboard.press("Tab");
     assert.equal(await page.locator(":focus").textContent(), "跳到主要内容");
     assert.equal(

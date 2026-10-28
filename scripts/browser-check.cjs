@@ -14,7 +14,7 @@ const child = spawn(binary, ["-test.run", "^TestBrowserFixture$", "-test.v"], {
   env: {
     ...process.env,
     DNS_ASSISTANT_BROWSER_FIXTURE: "1",
-    NAS_IP: "192.168.1.10",
+    SERVER_IP: "192.168.1.10",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

@@ -100,11 +100,19 @@ func TestStandalonePortConflict(t *testing.T) {
 
 func freeAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 100 {
+		packet, err := net.ListenPacket("udp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := packet.LocalAddr().String()
+		listener, err := net.Listen("tcp4", addr)
+		packet.Close()
+		if err == nil {
+			listener.Close()
+			return addr
+		}
 	}
-	addr := listener.Addr().String()
-	listener.Close()
-	return addr
+	t.Fatal("no free TCP/UDP address pair")
+	return ""
 }

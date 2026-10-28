@@ -14,7 +14,7 @@
 .\dns-assistant.exe standalone -ip 192.168.1.20 -data "$env:LOCALAPPDATA\DNS Assistant\data"
 ```
 
-便携模式不指定 `-data` 时使用便携目录；不设置 `-ip` 时仍可解析，但首页不会猜测 DNS 地址。`NAS_IP` 环境变量也可提供同一地址。修改快捷方式后重新启动程序生效。
+便携模式不指定 `-data` 时使用便携目录；不设置 `-ip` 时仍可解析，但首页不会猜测 DNS 地址。`SERVER_IP` 环境变量也可提供同一地址。修改快捷方式后重新启动程序生效。
 
 首次运行检查 TCP／UDP 53 与 TCP 8080 无冲突。Windows 防火墙中只允许受信任的专用局域网访问本程序的 UDP／TCP 53 和 TCP 8080；不要允许公共网络或公网转发。程序保留局域网来源、Host 与写操作校验；使用其他主机名访问时设置 `ADMIN_HOSTS`。不要直接关闭防火墙解决访问问题。
 

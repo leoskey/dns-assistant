@@ -457,6 +457,19 @@ func testAPI(t *testing.T) (*API, http.Handler) {
 	return a, a.Handler()
 }
 
+func TestConfigRejectsServerAddressAsUpstream(t *testing.T) {
+	t.Setenv("SERVER_IP", "192.168.2.100")
+	config := DefaultConfig()
+	config.Upstreams = []string{"192.168.2.100:53"}
+	if err := config.Validate(); err == nil {
+		t.Fatal("server address accepted as its own upstream")
+	}
+	config.Upstreams = []string{"223.5.5.5:53"}
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 	_, h := testAPI(t)
 	for _, tc := range []struct{ configured, want string }{
@@ -468,7 +481,7 @@ func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 		{"169.254.1.1", ""}, {"224.0.0.1", ""}, {"2606:4700:4700::1111", ""},
 	} {
 		t.Run(tc.configured, func(t *testing.T) {
-			t.Setenv("NAS_IP", tc.configured)
+			t.Setenv("SERVER_IP", tc.configured)
 			r := call(h, "GET", "/api/v1/status", "", "", "")
 			var status struct {
 				DNSAddress string `json:"dns_address"`

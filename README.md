@@ -4,7 +4,7 @@
 
 [产品官网](https://leoskey.github.io/dns-assistant/)
 
-当前源码版本：**v0.2.0**。管理页面“设置”中可查看正在运行的版本，命令行使用 `dns-assistant version`。
+当前源码版本：**v0.3.0**。管理页面“设置”中可查看正在运行的版本，命令行使用 `dns-assistant version`。
 
 支持 Docker 部署与 Windows x64 单机安装的家庭游戏主机 DNS 优选工具。针对配置的 Xbox、PlayStation 和 Nintendo Switch 域名，在服务主机上测试候选公网 IPv4 的持续下载速度，并将合格节点用于后续 DNS 应答。
 
@@ -51,7 +51,7 @@ cd dns-assistant
 cp .env.example .env
 ```
 
-编辑 `.env`，将 `NAS_IP` 改为服务主机的固定局域网 IPv4，然后拉取镜像并生成服务密钥：
+编辑 `.env`，将 `SERVER_IP` 改为服务主机的固定局域网 IPv4，然后拉取镜像并生成服务密钥：
 
 ```sh
 docker compose pull
@@ -66,7 +66,7 @@ docker compose up -d --wait
 docker compose ps
 ```
 
-两项服务应显示为 `healthy`。在浏览器访问 `http://NAS_IP:8080`。Windows 用户使用 [安装程序或便携版](https://github.com/leoskey/dns-assistant/releases/tag/v0.2.0)。
+两项服务应显示为 `healthy`。在浏览器访问 `http://SERVER_IP:8080`。Windows 用户使用 [安装程序或便携版](https://github.com/leoskey/dns-assistant/releases/tag/v0.3.0)。
 
 管理页面免登录，只应在受信任局域网开放。使用服务主机主机名或反向代理时，将允许的主机名加入 `.env` 的 `ADMIN_HOSTS`；不要将管理入口直接暴露到公网。
 

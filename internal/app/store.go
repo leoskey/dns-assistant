@@ -22,6 +22,10 @@ func OpenStore(dir string) (*Store, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
+	if _, e = db.Exec("PRAGMA busy_timeout=5000"); e != nil {
+		db.Close()
+		return nil, e
+	}
 	var schema int
 	if e = db.QueryRow("PRAGMA user_version").Scan(&schema); e != nil {
 		db.Close()
@@ -32,7 +36,7 @@ func OpenStore(dir string) (*Store, error) {
 		return nil, fmt.Errorf("数据库版本 %d 高于本程序支持版本", schema)
 	}
 	s := &Store{db}
-	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
+	_, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
  CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS results(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,payload TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,message TEXT NOT NULL);

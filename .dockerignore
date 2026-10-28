@@ -12,5 +12,5 @@ data
 *.db
 *.db-shm
 *.db-wal
-docs/nas-deployment.md
+docs/host-deployment.md
 artifacts

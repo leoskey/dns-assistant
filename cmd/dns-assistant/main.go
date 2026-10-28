@@ -70,7 +70,7 @@ func main() {
 	addr := flags.String("listen", env("LISTEN_ADDR", defaultAddr), "DNS 监听地址")
 	var ip *string
 	if command == "standalone" {
-		ip = flags.String("ip", env("NAS_IP", ""), "本机固定局域网 IPv4，用于接入指引")
+		ip = flags.String("ip", env("SERVER_IP", ""), "本机固定局域网 IPv4，用于接入指引")
 	}
 	flags.Parse(os.Args[2:])
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -82,7 +82,7 @@ func main() {
 				slog.Error("-ip 必须是本机固定局域网 IPv4")
 				os.Exit(2)
 			}
-			os.Setenv("NAS_IP", *ip)
+			os.Setenv("SERVER_IP", *ip)
 		}
 		if e := runStandalone(ctx, *dir, *addr, env("WEB_ADDR", ":8080")); e != nil {
 			slog.Error("单机服务退出", "error", e)
