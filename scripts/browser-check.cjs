@@ -239,6 +239,33 @@ async function poll(fn, message, timeout = 15000) {
     });
     assert.deepEqual(await proxyRequest(), { status: 200, body: "proxy-browser-fixture" });
     assert((await request("status")).proxy.downloaded_bytes > 0);
+    const speed = proxyCard.getByLabel("当前下载速度", { exact: true });
+    await poll(async () => (await speed.innerText()) === "0.00 MB/s", "idle speed did not settle at zero");
+    const stream = http.request(proxyURL, { path: "http://xvcf1.xboxlive.com/stream-speed", headers: { Host: "xvcf1.xboxlive.com" } });
+    stream.on("response", response => response.resume());
+    stream.on("error", () => {});
+    stream.end();
+    try {
+      await poll(async () => parseFloat(await speed.innerText()) > 0.5, "real proxy stream did not update download speed");
+      await page.screenshot({ path: path.join(output, "proxy-speed-active.png") });
+    } finally {
+      stream.destroy();
+    }
+    await poll(async () => (await speed.innerText()) === "0.00 MB/s", "stopped download retained stale speed");
+    await page.route("**/api/v1/proxy/traffic", route => route.fulfill({ status: 503, json: { error: "fixture unavailable" } }));
+    await speed.getByText("暂不可用", { exact: true }).waitFor();
+    await page.unroute("**/api/v1/proxy/traffic");
+    await poll(async () => (await speed.innerText()) === "0.00 MB/s", "traffic sampling did not recover");
+    let restartedSample = 0;
+    await page.route("**/api/v1/proxy/traffic", async route => {
+      const response = await route.fetch();
+      const sample = await response.json();
+      await route.fulfill({ response, json: { ...sample, started_at: "restarted", downloaded_bytes: restartedSample++ ? 2000000 : 1000000 } });
+    });
+    await poll(async () => (await speed.innerText()) === "正在采样…", "restart did not reset sampling");
+    await poll(async () => parseFloat(await speed.innerText()) > 0, "sampling did not resume after restart");
+    await page.unroute("**/api/v1/proxy/traffic");
+    await poll(async () => (await speed.innerText()) === "0.00 MB/s", "original traffic sampling did not resume");
     const setup = page.locator(".console-setup");
     const parameters = page.locator(".connection-layout > .connection-modes");
     assert.equal(await parameters.count(), 1);
@@ -340,7 +367,7 @@ async function poll(fn, message, timeout = 15000) {
     assert.equal(await modelTabs.getByRole("tab", { name: "PS4", exact: true }).getAttribute("aria-selected"), "true");
     await setup.getByText("设置 → 网络 → 设定互联网连接 → Wi-Fi / LAN → 自定义 → 代理设置", { exact: true }).waitFor();
     await modelTabs.getByRole("tab", { name: "PS5", exact: true }).click();
-    assert(!(await page.locator("body").innerText()).includes("NAS"));
+    assert((await page.locator("body").innerText()).includes("代理模式"));
     assert(!(await page.locator(".network-board").innerText()).includes("自动选优"));
     assert((await page.locator(".aside-note").innerText()).includes("自动选优"));
     await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -603,7 +630,8 @@ async function poll(fn, message, timeout = 15000) {
         "daily summary API retained",
         "sidebar footer shows the running backend application version",
         "proxy available at startup, reload, actual forwarded bytes and preserved after settings save",
-        "one parameter card with both modes and brief benefits, no telemetry/footer descriptions, guide at right, keyboard and mobile stacking",
+        "one parameter card with both modes, proxy download speed from real streaming bytes, idle zero, unavailable/recovery and restart reset",
+        "guide at right, keyboard and mobile stacking",
         "LAN address first item, shared multi-address selector, keyboard/mobile, clipboard fallback and empty addresses",
         "in-field copy button, floating feedback without layout shift, DNS address without a port row",
         "PS5/PS4 model tabs update guide pages, keyboard/panel semantics and selection retention",

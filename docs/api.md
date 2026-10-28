@@ -7,6 +7,7 @@
 | --- | --- |
 | GET /healthz | 管理数据库可用检查 |
 | GET /api/v1/status | 自动状态、当前策略、任务、下次复测和同步状态，不携带记录列表 |
+| GET /api/v1/proxy/traffic | 轻量代理采样：downloaded_bytes 累计下行字节、uptime_seconds 单调运行秒数、started_at 本次管理进程启动时间；沿用管理访问限制 |
 | GET /api/v1/config | 当前完整设置 |
 | PUT /api/v1/config | 完整校验后事务替换设置，取消旧规则探测 |
 | GET /api/v1/queries | 分页查询接入请求记录 |

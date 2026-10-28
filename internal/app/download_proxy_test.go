@@ -192,6 +192,7 @@ func TestDownloadProxyHTTPRangeHeadersAndStreaming(t *testing.T) {
 	if requests.Load() != 2 || m.DownloadProxy.downloaded.Load() < 100 {
 		t.Fatal("transfer counters missing")
 	}
+	checkProxyTraffic(t, m)
 	m.DownloadProxy.forward.Transport.(*http.Transport).CloseIdleConnections()
 	origin.Close()
 	resp, err := client.Get("http://download.example/file")
@@ -236,6 +237,7 @@ func TestDownloadProxyCONNECTPreservesTLS(t *testing.T) {
 	if err != nil || string(data) != "encrypted-payload" || m.DownloadProxy.downloaded.Load() == 0 {
 		t.Fatal(string(data), err)
 	}
+	checkProxyTraffic(t, m)
 	page, err := m.store.ConnectionPage(PageRequest{Page: 1, Size: 10})
 	if err != nil || page.Total != 1 || page.Items[0].Method != "CONNECT" || page.Items[0].Address != "example.com:443" || page.Items[0].Domain != "example.com" {
 		t.Fatal("HTTPS records must contain the tunnel authority, never the encrypted path", page, err)
@@ -360,7 +362,6 @@ func TestDownloadProxyConfigPersistenceBackupAndStatus(t *testing.T) {
 		t.Fatal("backup exported retired switch", backup.Body.String())
 	}
 	t.Setenv("SERVER_IP", "192.168.1.30")
-	t.Setenv("NAS_IP", "192.168.1.20")
 	var status struct {
 		DNSAddress string      `json:"dns_address"`
 		Proxy      ProxyStatus `json:"proxy"`
@@ -371,11 +372,38 @@ func TestDownloadProxyConfigPersistenceBackupAndStatus(t *testing.T) {
 	}
 	t.Setenv("SERVER_IP", "")
 	if deploymentIP() != "" {
-		t.Fatal("retired NAS_IP must not be used")
+		t.Fatal("unset deployment address must stay empty")
 	}
 	t.Setenv("SERVER_IP", "invalid")
 	if deploymentIP() != "" {
-		t.Fatal("invalid primary address must not silently use legacy value")
+		t.Fatal("invalid deployment address must be rejected")
+	}
+}
+
+func checkProxyTraffic(t *testing.T, m *Manager) {
+	t.Helper()
+	a := NewAPI(m)
+	h := a.Handler()
+	var first, second struct {
+		DownloadedBytes int64     `json:"downloaded_bytes"`
+		UptimeSeconds   float64   `json:"uptime_seconds"`
+		StartedAt       time.Time `json:"started_at"`
+	}
+	for _, sample := range []any{&first, &second} {
+		r := call(h, "GET", "/api/v1/proxy/traffic", "", "", "")
+		if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), sample) != nil {
+			t.Fatal("traffic snapshot failed", r.Code, r.Body.String())
+		}
+	}
+	if first.DownloadedBytes != m.DownloadProxy.downloaded.Load() || second.DownloadedBytes != first.DownloadedBytes || second.UptimeSeconds <= first.UptimeSeconds || !first.StartedAt.Equal(a.started) {
+		t.Fatal("traffic snapshots must expose actual bytes and elapsed time without consuming counters", first, second)
+	}
+	req := httptest.NewRequest("GET", "/api/v1/proxy/traffic", nil)
+	req.RemoteAddr = "8.8.8.8:1234"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 403 {
+		t.Fatal("traffic endpoint bypassed source restriction", w.Code)
 	}
 }
 
@@ -397,7 +425,6 @@ func TestLANIPv4Discovery(t *testing.T) {
 		t.Fatal("empty discovery must return an empty list", got)
 	}
 	t.Setenv("SERVER_IP", "127.0.0.1")
-	t.Setenv("NAS_IP", "192.168.2.15")
 	if got := serviceAddresses(); len(got) != 0 {
 		t.Fatal("invalid explicit address must not fall back to loopback or container interfaces", got)
 	}

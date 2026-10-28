@@ -258,7 +258,7 @@ func (d *DNS) validatePolicy(p Policy) error {
 			for _, a := range ips {
 				v, _, _ := net.ParseCIDR(a.String())
 				if v != nil && v.String() == h {
-					return errors.New("DNS 上游不能指向本机监听地址")
+					return errors.New("DNS 上游不能指向自身监听地址")
 				}
 			}
 		}

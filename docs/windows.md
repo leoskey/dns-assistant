@@ -8,7 +8,7 @@
 
 便携版使用 `dns-assistant-X.Y.Z-windows-amd64.zip`，解压至可写目录，双击 `dns-assistant.exe`，再打开同一管理地址。便携版默认把数据保存在程序旁的 `data` 目录；安装版开始菜单入口使用 `%LOCALAPPDATA%\DNS Assistant\data`。
 
-游戏主机的 DNS 填写这台电脑的固定局域网 IPv4。要让首页显示这个地址，可修改开始菜单快捷方式，在参数末尾添加 `-ip 192.168.1.20`（替换为本机地址），或者在 PowerShell 中运行：
+游戏主机的 DNS 填写这台电脑的固定局域网 IPv4。要让首页显示这个地址，可修改开始菜单快捷方式，在参数末尾添加 `-ip 192.168.1.20`（替换为服务主机地址），或者在 PowerShell 中运行：
 
 ```powershell
 .\dns-assistant.exe standalone -ip 192.168.1.20 -data "$env:LOCALAPPDATA\DNS Assistant\data"
@@ -25,9 +25,9 @@
 - 安装版升级使用同一安装目录和开始菜单数据路径。卸载保留数据；需要清除时，先停止服务、让游戏主机恢复自动 DNS，再手动删除数据目录。
 - 便携版升级将新版本解压至新目录，停止旧版后复制完整 `data`，或始终使用 `-data` 指向独立数据目录。回滚同时恢复与旧版兼容的数据备份。
 - `dns-assistant.exe version` 查看版本及源码 revision；`config` 输出默认配置。DNS 存活检查使用 `$env:DNS_HEALTH_ADDR='127.0.0.1:53'; .\dns-assistant.exe health dns`；管理检查使用 `.\dns-assistant.exe health`（默认 8080）。
-- 排查端口可使用 `Get-NetTCPConnection -State Listen -LocalPort 53,8080` 与 `Get-NetUDPEndpoint -LocalPort 53`。端口冲突会报告地址及错误，不会结束其他程序。仅本机测试时可用 `standalone -listen 127.0.0.1:5353`；主机接入仍需要标准 53 端口。
+- 排查端口可使用 `Get-NetTCPConnection -State Listen -LocalPort 53,8080` 与 `Get-NetUDPEndpoint -LocalPort 53`。端口冲突会报告地址及错误，不会结束其他程序。仅环回测试时可用 `standalone -listen 127.0.0.1:5353`；主机接入仍需要标准 53 端口。
 
-安装包暂未代码签名；请核对来源和随包发布的 `SHA256SUMS`。构建和本机测试不代表防火墙、睡眠唤醒或真实主机下载收益已经验证。
+安装包暂未代码签名；请核对来源和随包发布的 `SHA256SUMS`。构建和隔离测试不代表防火墙、睡眠唤醒或真实主机下载收益已经验证。
 
 ## 从源码打包
 
@@ -42,7 +42,7 @@ powershell -NoProfile -File scripts/test-windows-package.ps1
 
 构建输出在忽略目录 `artifacts/releases`，含便携 ZIP、安装 EXE 和 SHA-256 清单。脚本复用当前版本文件，编译时嵌入 revision。Inno Setup 采用 [当前用户安装模式](https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm)，卸载不配置数据目录删除规则。
 
-本机没有 Go 时，可用 Docker 构建同一 Windows 二进制，再调用打包脚本：
+未安装 Go 时，可用 Docker 构建同一 Windows 二进制，再调用打包脚本：
 
 ```powershell
 $revision = git rev-parse HEAD

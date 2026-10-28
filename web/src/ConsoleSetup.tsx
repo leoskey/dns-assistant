@@ -8,6 +8,7 @@ import {
   Network,
 } from "lucide-react";
 import * as Select from "@radix-ui/react-select";
+import { ProxySpeed } from "./ProxySpeed";
 
 type Mode = "proxy" | "dns";
 const modes = [
@@ -237,6 +238,7 @@ export function ConsoleSetup({
                 </p>
               )}
               <dl className="setup-facts">
+                {value === "proxy" && <ProxySpeed />}
                 <div>
                   <dt>{value === "dns" ? "DNS 设置" : "代理设置"}</dt>
                   <dd>手动</dd>

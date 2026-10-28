@@ -60,6 +60,22 @@ func TestBrowserFixture(t *testing.T) {
 	})
 	m.resolve = func(context.Context, string, Config) []string { return []string{"1.1.1.1"} }
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stream-speed" {
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			chunk := make([]byte, 64*1024)
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+					if _, err := w.Write(chunk); err != nil {
+						return
+					}
+					w.(http.Flusher).Flush()
+				}
+			}
+		}
 		w.Write([]byte("proxy-browser-fixture"))
 	}))
 	defer origin.Close()

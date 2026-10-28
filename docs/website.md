@@ -42,7 +42,7 @@ npm run build:website
 
 官网入口：[GitHub Pages](https://leoskey.github.io/dns-assistant/)。
 
-构建使用相对资源路径，可在仓库子路径或域名根路径托管。只上传 `artifacts/website/`；本机截图、规则与数据库、环境文件及 `.openai/` 托管身份配置不进入提交或 Pages 产物。Actions 固定提交 SHA，只有部署任务具有 Pages 与 OIDC 写权限，不需要额外保存部署密钥。
+构建使用相对资源路径，可在仓库子路径或域名根路径托管。只上传 `artifacts/website/`；验证截图、规则与数据库、环境文件及 `.openai/` 托管身份配置不进入提交或 Pages 产物。Actions 固定提交 SHA，只有部署任务具有 Pages 与 OIDC 写权限，不需要额外保存部署密钥。
 
 ## 浏览器验证
 
@@ -56,7 +56,7 @@ npm run test:website
 
 验证覆盖安装包与便携版链接、页脚版本、平台选择、键盘、站内锚点、旧布局与第三方图形标志移除，以及 1440、1024、768、390、360px 下的布局、字号、文字对比度和页面错误。同时断言页面及元数据无 Docker 文案、无容器部署链接和命令复制控件。
 
-本机截图位于忽略目录 `artifacts/website-check/`，不随克隆提供。官网验证不替代服务主机、Go 服务或真实主机下载收益验收；产品运行验证以[验证记录](validation.md)为准。
+验证截图位于忽略目录 `artifacts/website-check/`，不随克隆提供。官网验证不替代服务主机、Go 服务或真实主机下载收益验收；产品运行验证以[验证记录](validation.md)为准。
 
 ### 2026-10-28 验证结果
 

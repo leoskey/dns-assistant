@@ -74,6 +74,9 @@ func (a *API) Handler() http.Handler {
 	})
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /api/v1/status", a.status)
+	protected.HandleFunc("GET /api/v1/proxy/traffic", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, 200, map[string]any{"downloaded_bytes": a.m.DownloadProxy.downloaded.Load(), "uptime_seconds": time.Since(a.started).Seconds(), "started_at": a.started})
+	})
 	protected.HandleFunc("GET /api/v1/config", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, a.m.Config()) })
 	protected.HandleFunc("POST /api/v1/probe-batch", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {

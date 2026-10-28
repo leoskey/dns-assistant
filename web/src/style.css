@@ -1288,6 +1288,12 @@ details summary {
 }
 .dns-copy .copy-address:hover { background: var(--muted); }
 .dns-copy .copy-address:active { transform: none; }
+.proxy-speed-note {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+}
 .setup-facts {
   margin: 0;
   font-size: 12px;
