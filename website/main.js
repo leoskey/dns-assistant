@@ -23,24 +23,3 @@ for (const button of platformButtons) {
     document.querySelector("#guide-path").textContent = guide.path;
   });
 }
-
-const copyButton = document.querySelector("#copy-command");
-copyButton.addEventListener("click", async () => {
-  const command = document.querySelector("#install-command");
-  const status = document.querySelector("#copy-status");
-  copyButton.disabled = true;
-  try {
-    await navigator.clipboard.writeText(command.textContent.trim());
-    status.textContent = "已复制";
-  } catch {
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(command);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    command.parentElement.focus();
-    status.textContent = "命令已选中，请按 Ctrl/Cmd+C 或长按复制。";
-  } finally {
-    copyButton.disabled = false;
-  }
-});

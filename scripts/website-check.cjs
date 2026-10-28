@@ -49,11 +49,21 @@ const path = require("node:path");
         .getAttribute("href"),
       `https://github.com/leoskey/dns-assistant/releases/download/v${version}/dns-assistant-${version}-windows-amd64.zip`,
     );
+    assert(
+      !/docker/i.test(await page.locator("body").textContent()),
+      "website must not advertise Docker deployment",
+    );
     assert.equal(
       await page
-        .getByRole("link", { name: "Docker 部署指南", exact: true })
-        .getAttribute("href"),
-      `https://github.com/leoskey/dns-assistant/blob/v${version}/docs/deployment.md`,
+        .locator(
+          ".install-panel, #install-command, #copy-command, #copy-status",
+        )
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page.locator('a[href*="docs/deployment.md"]').count(),
+      0,
     );
     assert(
       (await page.locator(".hero-content > p").textContent()).includes(
@@ -71,7 +81,7 @@ const path = require("node:path");
     for (const meta of await page
       .locator('meta[name="description"], meta[property="og:description"]')
       .all())
-      assert(!/\bNAS\b/i.test(await meta.getAttribute("content")));
+      assert(!/\bNAS\b|docker/i.test(await meta.getAttribute("content")));
     await page.keyboard.press("Tab");
     assert.equal(await page.locator(":focus").textContent(), "跳到主要内容");
     assert.equal(
@@ -111,36 +121,6 @@ const path = require("node:path");
         (await page.locator("#guide-path").textContent()).includes(fragment),
       );
     }
-    await page.evaluate(() => {
-      window.copiedCommand = "";
-      Object.defineProperty(navigator, "clipboard", {
-        configurable: true,
-        value: {
-          writeText: async (text) => {
-            window.copiedCommand = text;
-          },
-        },
-      });
-    });
-    await page.getByRole("button", { name: "复制命令" }).click();
-    assert.equal(
-      await page.evaluate(() => window.copiedCommand),
-      await page.locator("#install-command").textContent(),
-    );
-    assert.equal(await page.getByRole("status").textContent(), "已复制");
-    await page.evaluate(() => {
-      navigator.clipboard.writeText = async () => {
-        throw new Error("denied");
-      };
-    });
-    await page.getByRole("button", { name: "复制命令" }).click();
-    assert(
-      (await page.getByRole("status").textContent()).includes("命令已选中"),
-    );
-    assert.equal(
-      await page.evaluate(() => getSelection().toString()),
-      await page.locator("#install-command").textContent(),
-    );
     const invalidLinks = await page
       .locator('a[href^="#"]')
       .evaluateAll((links) =>
@@ -231,7 +211,7 @@ const path = require("node:path");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "Website checks passed: release links and version, 5 widths, artwork, keyboard, platforms, copy/fallback, anchors, logo/old-layout removal, contrast, type sizes, browser errors.",
+      "Website checks passed: release links and version, 5 widths, artwork, keyboard, platforms, Windows-only entry, anchors, logo/old-layout removal, contrast, type sizes, browser errors.",
     );
   } finally {
     await browser.close();
