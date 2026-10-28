@@ -41,18 +41,20 @@ export function ProxySpeed() {
     };
   }, []);
   return (
-    <div>
-      <dt>当前下载速度</dt>
-      <dd>
-        <output aria-label="当前下载速度" aria-live="off">
-          {failed
-            ? "暂不可用"
-            : speed === null
-              ? "正在采样…"
-              : `${(speed / 1000000).toFixed(2)} MB/s`}
-        </output>
-        <small className="proxy-speed-note">全部主机代理流量合计</small>
-      </dd>
-    </div>
+    <dl className="proxy-speed">
+      <div>
+        <dt>当前下载速度</dt>
+        <dd>
+          <output aria-label="当前下载速度" aria-live="off">
+            {failed
+              ? "暂不可用"
+              : speed === null
+                ? "正在采样…"
+                : `${(speed / 1000000).toFixed(2)} MB/s`}
+          </output>
+          <small className="proxy-speed-note">全部主机代理流量合计</small>
+        </dd>
+      </div>
+    </dl>
   );
 }

@@ -154,10 +154,13 @@ export function ConsoleSetup({
               key={value}
               aria-labelledby={"mode-title-" + value}
             >
-              <h2 id={"mode-title-" + value}>
-                <Network aria-hidden="true" />
-                {label}
-              </h2>
+              <div className="mode-card-heading">
+                <h2 id={"mode-title-" + value}>
+                  <Network aria-hidden="true" />
+                  {label}
+                </h2>
+                {value === "proxy" && <ProxySpeed />}
+              </div>
               <p className="mode-benefit">
                 {value === "proxy"
                   ? "新建连接及时跟随优选节点变化，无需等待主机 DNS 缓存更新。"
@@ -238,7 +241,6 @@ export function ConsoleSetup({
                 </p>
               )}
               <dl className="setup-facts">
-                {value === "proxy" && <ProxySpeed />}
                 <div>
                   <dt>{value === "dns" ? "DNS 设置" : "代理设置"}</dt>
                   <dd>手动</dd>
