@@ -332,7 +332,7 @@ async function poll(fn, message, timeout = 15000) {
     assert.equal(await dnsAddress.innerText(), "192.168.1.10");
     advertised = [];
     await page.reload();
-    await proxyCard.getByText(/尚未配置主机可用的服务地址/).waitFor();
+    await proxyCard.getByText(/未发现可用的局域网地址/).waitFor();
     assert.equal(await page.locator(".connection-modes").getByRole("combobox").count(), 0);
     assert.equal(await page.locator(".connection-modes input").count(), 0);
     await page.unroute("**/api/v1/status", multipleAddresses);

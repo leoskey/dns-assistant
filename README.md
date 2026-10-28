@@ -56,22 +56,24 @@ cd dns-assistant
 cp .env.example .env
 ```
 
-编辑 `.env`，将 `SERVER_IP` 改为服务主机的固定局域网 IPv4，然后拉取镜像并生成服务密钥：
+Linux 服务主机保持 `.env` 中的 `SERVER_IP` 留空，以下命令会自动检测局域网出口地址；需要指定其他网卡时再填写该项。然后拉取镜像并生成服务密钥：
 
 ```sh
-docker compose pull
-docker compose run --rm --no-deps controller keygen
+sh deploy/compose.sh pull
+sh deploy/compose.sh run --rm --no-deps controller keygen
 ```
 
 将生成的密钥填入 `.env` 的 `SERVICE_TOKEN`，替换示例占位值。该密钥用于两个服务之间的通信。随后检查并启动：
 
 ```sh
-docker compose config --quiet
-docker compose up -d --wait
-docker compose ps
+sh deploy/compose.sh config --quiet
+sh deploy/compose.sh up -d --wait
+sh deploy/compose.sh ps
 ```
 
-两项服务应显示为 `healthy`。在浏览器访问 `http://SERVER_IP:8080`。Windows 用户使用 [安装程序或便携版](https://github.com/leoskey/dns-assistant/releases/tag/v0.4.0)。
+脚本会输出检测到的服务地址。两项服务应显示为 `healthy`；在浏览器访问 `http://检测到的地址:8080`。Windows 用户使用 [安装程序或便携版](https://github.com/leoskey/dns-assistant/releases/tag/v0.4.0)。
+
+自动检测脚本在 Linux 宿主机上运行，需要 iproute2 的 `ip` 命令；Windows 单机程序直接发现本机地址。远程 Docker、macOS／Docker Desktop 或无法确认局域网出口时，在 `.env` 显式填写 `SERVER_IP` 后使用原有 `docker compose` 命令。地址仍应通过 DHCP 保留或静态配置保持稳定。
 
 管理页面免登录，只应在受信任局域网开放。使用服务主机主机名或反向代理时，将允许的主机名加入 `.env` 的 `ADMIN_HOSTS`；不要将管理入口直接暴露到公网。
 
@@ -103,11 +105,11 @@ docker compose ps
 升级前保留 `.env` 和两个完整数据卷；界面导出的配置不包含历史、每日汇总及调度时间，不能代替卷备份。将 `.env` 中的 `DNS_ASSISTANT_IMAGE` 更新为目标发布版本后拉取并启动：
 
 ```sh
-docker compose pull
-docker compose up -d --wait
+sh deploy/compose.sh pull
+sh deploy/compose.sh up -d --wait
 ```
 
-`docker compose down` 默认保留数据卷；`down -v` 会删除数据。回滚到旧数据库格式的程序时，需要同时恢复匹配的数据卷快照。具体升级、回滚和日志检查方法见 [部署说明](docs/deployment.md)。
+`sh deploy/compose.sh down` 默认保留数据卷；`down -v` 会删除数据。回滚到旧数据库格式的程序时，需要同时恢复匹配的数据卷快照。具体升级、回滚和日志检查方法见 [部署说明](docs/deployment.md)。
 
 开发需要 Go 1.27.2 和 Node.js 24，前端构建后嵌入 Go 程序：
 

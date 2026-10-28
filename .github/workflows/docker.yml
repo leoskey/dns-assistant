@@ -40,6 +40,8 @@ jobs:
           npm ci --prefix web --no-audit --no-fund
           npm run build --prefix web
           npm test --prefix web
+      - name: Check automatic server address
+        run: npm run test:server-ip
       - name: Check release version
         id: version
         env:

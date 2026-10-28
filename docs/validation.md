@@ -23,6 +23,15 @@
 
 初始验证批次：2026-10-20 的选优重构。文档整理：2026-10-28。原有表格与后端、amd64 部署结论为既有记录，不表示整理时重新运行过测试，也不声明具体设备的当前版本；增量验证按日期单独列出。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。
 
+## 服务地址自动检测（2026-10-28，源码候选）
+
+- Linux 宿主机新增 `sh deploy/compose.sh`；`.env` 的 `SERVER_IP` 留空时按内核路由检测局域网出口地址，显式配置优先，保留精确的端口绑定。单机继续复用现有网卡发现和首页地址选择，文档不再要求默认填写地址。
+- `npm run test:server-ip` 的 23 项检查通过：自动识别、显式覆盖、参数和退出码保留、Compose 环境读取失败、远程上下文、VPN 出口、无路由、地址不属于网卡、非私网及无效地址；执行真实 shell 脚本，系统命令使用受控夹具，不代表 Linux 实机网卡验收。
+- 真实 Compose 配置检查通过：空值、带引号的 `.env` 地址与 shell 优先级符合预期；两个服务的环境值及四个端口绑定一致。检查仅生成配置，没有启动或修改现有服务。
+- Windows 原生 Go 的 `TestLANIPv4Discovery` 通过；以临时 SQLite、DNS 和下载夹具运行真实管理 API，不设置 `SERVER_IP` 时发现 3 个属于本机的局域网地址。Chromium 验证地址显示、DNS／代理同步选择、1280px 桌面和 360px 手机、空列表提示及无页面异常通过。
+- 前端 TypeScript／Vite 生产构建、版本同步检查与 `git diff --check` 通过；浏览器测试的空状态断言已同步。截图及原始日志保存在忽略目录 `artifacts/server-ip/`，本机检查脚本在 `.cache/`，均不随克隆提供。
+- 尚未验证 Linux 真实物理网卡、Docker Desktop 自动识别、路由变化后的实机维护、Windows 防火墙及真实游戏主机接入。非 Linux 或无法确认出口时仍需显式提供地址；本次未部署、未发布。
+
 ## v0.3.1 发布验证（2026-10-28）
 
 - [版本标签流水线](https://github.com/leoskey/dns-assistant/actions/runs/40620988789)、[主线发布复验](https://github.com/leoskey/dns-assistant/actions/runs/40621542710) 和 [官网部署](https://github.com/leoskey/dns-assistant/actions/runs/40621542863) 全部成功；发布源码为 `8fcb571f9c48460a34a279026b801b914b795847`，保留 v0.3.0 的功能与 `SERVER_IP` 配置。

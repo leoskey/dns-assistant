@@ -237,7 +237,7 @@ export function ConsoleSetup({
                 </>
               ) : (
                 <p className="setup-warning" role="status">
-                  尚未配置主机可用的服务地址。请检查部署时声明的固定局域网 IP。
+                  未发现可用的局域网地址。请检查服务器的网络连接或地址配置。
                 </p>
               )}
               <dl className="setup-facts">

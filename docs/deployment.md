@@ -6,18 +6,18 @@
 
 ## 安装前
 
-接入地址统一使用 `SERVER_IP`。从 v0.3.0 之前的版本升级时，在原 `.env` 中设置 `SERVER_IP=服务主机固定局域网IPv4`，再更改镜像版本并执行配置校验；旧地址变量不再识别，缺少新变量会阻止 Compose 启动。服务密钥与两个数据卷保持原值，无需迁移数据库。Windows 使用 `-ip` 参数的启动方式不变；自行设置过地址环境变量的用户也需要改用 `SERVER_IP`。
+接入地址统一使用 `SERVER_IP`。从 v0.3.0 之前的版本升级时，在原 `.env` 中添加 `SERVER_IP=`，使用宿主机自动检测脚本，或显式填写本机固定局域网 IPv4，再更改镜像版本并校验；旧地址变量不再识别。绕过脚本直接使用 Compose 时仍须提供该值。服务密钥与两个数据卷保持原值，无需迁移数据库。Windows 使用 `-ip` 参数的启动方式不变；自行设置过地址环境变量的用户也需要改用 `SERVER_IP`。
 
 无需 Docker 的 Windows x64 安装程序和便携版见 [Windows 单机安装](windows.md)。两种方式独立选择，不要在同一 IP 上同时占用 53 和 8080。
 
 1. 用 `docker version` 与 `docker compose version` 确认 daemon 和 Compose v2。
-2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 SERVER_IP。
+2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；Linux 使用 `sh deploy/compose.sh` 自动检测，`.env` 的 `SERVER_IP` 留空；需要选用其他网卡时再填写。
 3. 检查 TCP／UDP 53 和 TCP 8080 的现有占用，运行 `sh deploy/preflight.sh` 辅助诊断。
 4. Docker named volumes 位于服务主机本地存储，不使用 NFS／SMB 作为 SQLite WAL 数据目录。
 5. 镜像运行 UID/GID 为 10001:10001。默认新命名卷继承镜像 /data 的所有权；若替换成 bind mount，预先给目录匹配的读写权限，勿把整个服务主机目录授权给容器。
 6. 运行 keygen 生成随机服务密钥，两个容器使用同一值；保留 .env，不提交到 Git。
 7. 按选定部署方式执行 Compose 配置校验并启动，两个服务均应显示 healthy。
-8. Compose 对外仅发布 IPv4 端口，SERVER_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
+8. Compose 对外仅发布 IPv4 端口，`SERVER_IP` 由宿主机脚本检测或显式提供，必须是局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
 `.env.example` 的 `DNS_ASSISTANT_IMAGE` 指定对应版本标签；省略该变量时，`compose.yaml` 才回退至 `latest`。Docker 按 manifest 匹配 amd64／arm64，也可固定完整摘要。[README](../README.md) 的快速部署使用预构建镜像。需要构建检出的源码时使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
 
@@ -59,3 +59,11 @@
 ## 下载代理候选
 
 当前候选新增 controller 的 TCP 8082 端口发布；局域网来源继续受 allowed_cidrs 限制。首次启动将 schema 3 升级为 4 并创建连接记录表，配置和原历史保留。升级前停止两个服务，冷备份完整数据卷及环境文件；回退到 v0.3.1 时须同时恢复原卷备份。不要只保存配置导出。
+
+## 自动识别服务地址
+
+Linux 宿主机使用 `sh deploy/compose.sh` 代替常规 `docker compose` 命令，例如 `sh deploy/compose.sh up -d --wait`、`sh deploy/compose.sh -f compose.yaml -f compose.build.yaml build`。脚本通过 Compose 解析项目根目录 `.env`，shell 环境中的显式 `SERVER_IP` 优先；留空时按系统出口路由选取私网 IPv4，检查地址属于出口网卡。所有服务展示与端口绑定使用同一地址，不修改环境文件、路由、DHCP 或数据卷。
+
+无路由、点对点隧道、公网或无效地址会停止操作并提示设置 `SERVER_IP`。多网卡环境若游戏主机位于其他网段，可显式指定对应地址。远程引擎及非 Linux Docker 环境请手动配置目标服务器地址后使用原有命令；单机模式自动枚举本机地址，见 [Windows 单机安装](windows.md)。自定义环境文件继续使用显式 `SERVER_IP` 与原有 `docker compose --env-file` 命令。网络已断开而无法检测时，维护操作也可临时提供原地址，例如 `SERVER_IP=192.168.1.20 sh deploy/compose.sh down`。
+
+实现依据：[Linux 路由查询](https://man7.org/linux/man-pages/man8/ip-route.8.html)只查询内核选路，不发送探测数据；[Compose 变量解析](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)复用其原生环境优先级，不将 `.env` 作为 shell 代码执行。

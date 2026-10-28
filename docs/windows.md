@@ -8,13 +8,15 @@
 
 便携版使用 `dns-assistant-X.Y.Z-windows-amd64.zip`，解压至可写目录，双击 `dns-assistant.exe`，再打开同一管理地址。便携版默认把数据保存在程序旁的 `data` 目录；安装版开始菜单入口使用 `%LOCALAPPDATA%\DNS Assistant\data`。
 
-游戏主机的 DNS 填写这台电脑的固定局域网 IPv4。要让首页显示这个地址，可修改开始菜单快捷方式，在参数末尾添加 `-ip 192.168.1.20`（替换为服务主机地址），或者在 PowerShell 中运行：
+程序自动发现本机局域网 IPv4，首页的 DNS 与代理配置直接显示地址，无需填写 `Server IP`。多个地址时使用已有下拉列表选择与游戏主机处于同一局域网的地址；无可用地址时显示检查提示，不使用公网、环回或链路本地地址。
+
+需要固定显示某个地址时，可在开始菜单快捷方式末尾添加 `-ip 192.168.1.20`（替换为服务主机地址），或使用 `SERVER_IP` 环境变量。显式值优先，无效值不会改用其他网卡。启动示例：
 
 ```powershell
-.\dns-assistant.exe standalone -ip 192.168.1.20 -data "$env:LOCALAPPDATA\DNS Assistant\data"
+.\dns-assistant.exe standalone -data "$env:LOCALAPPDATA\DNS Assistant\data"
 ```
 
-便携模式不指定 `-data` 时使用便携目录；不设置 `-ip` 时仍可解析，但首页不会猜测 DNS 地址。`SERVER_IP` 环境变量也可提供同一地址。修改快捷方式后重新启动程序生效。
+便携模式不指定 `-data` 时使用便携目录；地址仍需通过 DHCP 保留或静态配置保持稳定。修改启动参数后重新启动程序生效。
 
 首次运行检查 TCP／UDP 53 与 TCP 8080 无冲突。Windows 防火墙中只允许受信任的专用局域网访问本程序的 UDP／TCP 53 和 TCP 8080；不要允许公共网络或公网转发。程序保留局域网来源、Host 与写操作校验；使用其他主机名访问时设置 `ADMIN_HOSTS`。不要直接关闭防火墙解决访问问题。
 

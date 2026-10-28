@@ -10,7 +10,8 @@
     "dev": "npm --prefix web run dev",
     "dev:website": "node web/node_modules/vite/bin/vite.js website --host 127.0.0.1",
     "build:website": "node web/node_modules/vite/bin/vite.js build website --outDir ../artifacts/website --emptyOutDir --base ./",
-    "test:website": "node scripts/website-check.cjs"
+    "test:website": "node scripts/website-check.cjs",
+    "test:server-ip": "node scripts/compose-ip.test.cjs"
   },
   "version": "0.4.0"
 }
