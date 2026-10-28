@@ -2,9 +2,10 @@
 
 更新：2026-10-28。本文提供通用部署与维护步骤；验证范围见 [验证记录](validation.md)。以下检查不修改路由器、防火墙或现有 DNS。
 
-当前说明覆盖通用 Docker 环境；NAS 平台暂不支持。现有配置名 `NAS_IP` 表示服务主机 IPv4，保持兼容。
 
 ## 安装前
+
+无需 Docker 的 Windows x64 安装程序和便携版见 [Windows 单机安装](windows.md)。两种方式独立选择，不要在同一 IP 上同时占用 53 和 8080。
 
 1. 用 `docker version` 与 `docker compose version` 确认 daemon 和 Compose v2。
 2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 NAS_IP。
@@ -15,11 +16,11 @@
 7. 按选定部署方式执行 Compose 配置校验并启动，两个服务均应显示 healthy。
 8. Compose 对外仅发布 IPv4 端口，NAS_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
-单独使用 `compose.yaml` 时，默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取发布镜像，Docker 按 manifest 匹配 amd64／arm64；可用 `DNS_ASSISTANT_IMAGE` 固定已发布版本或摘要。部署前核对目标发布的版本、提交与架构，源码更新不代表镜像已更新。[README](../README.md) 的快速部署采用源码构建，使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
+`.env.example` 将 `DNS_ASSISTANT_IMAGE` 固定为当前源码版本 0.2.0；省略该变量时，`compose.yaml` 才回退至 `latest`。Docker 按 manifest 匹配 amd64／arm64，也可固定完整摘要。[README](../README.md) 的快速部署使用预构建镜像。需要构建检出的源码时使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
 
 中国大陆访问 GHCR 缓慢时，可按 [镜像拉取与升级](image-release.md#镜像拉取与升级) 检查缓存入口的可达性与摘要，再选择拉取路径。
 
-更新时保留原项目名称、环境文件、服务密钥和两个数据卷。镜像部署执行 `docker compose pull`、`docker compose up -d --wait`；源码部署按 README 使用两个 `-f` 参数重新 build 与 up。自定义 Compose 使用 `env_file` 时保留其引用；由离线镜像转为网络拉取时，移除阻止拉取的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
+更新时保留原项目名称、环境文件、服务密钥和两个数据卷。镜像部署执行 `docker compose pull`、`docker compose up -d --wait`；源码部署按上述说明使用两个 `-f` 参数重新 build 与 up。自定义 Compose 使用 `env_file` 时保留其引用；由离线镜像转为网络拉取时，移除阻止拉取的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
 
 ## 接入
 

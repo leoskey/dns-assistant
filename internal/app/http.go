@@ -415,18 +415,22 @@ func (a *API) Internal() http.Handler {
 	return mux
 }
 func Serve(ctx context.Context, addr string, h http.Handler) error {
-	s := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	listener, e := net.Listen("tcp4", addr)
+	if e != nil {
+		return e
+	}
+	return ServeListener(ctx, listener, h)
+}
+
+func ServeListener(ctx context.Context, listener net.Listener, h http.Handler) error {
+	s := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		s.Shutdown(c)
 	}()
-	listener, e := net.Listen("tcp4", addr)
-	if e != nil {
-		return e
-	}
-	e = s.Serve(listener)
+	e := s.Serve(listener)
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}

@@ -499,7 +499,7 @@ function Settings() {
                 />
               </label>
               <p id="upstream-warning" className="muted">
-                请勿填写 NAS 自身的 DNS 地址。
+                请勿填写服务主机自身的 DNS 地址。
               </p>
               <label>
                 允许访问的局域网网段（每行一个）

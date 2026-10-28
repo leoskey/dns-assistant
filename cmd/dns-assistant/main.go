@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,8 +25,7 @@ func env(k, def string) string {
 }
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "用法: dns-assistant dns|controller|health|keygen|config|version")
-		os.Exit(2)
+		os.Args = append(os.Args, "standalone")
 	}
 	command := os.Args[1]
 	if command == "version" {
@@ -57,9 +57,39 @@ func main() {
 		return
 	}
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
-	dir := flags.String("data", env("DATA_DIR", "data/"+command), "数据目录")
-	addr := flags.String("listen", env("LISTEN_ADDR", ":5353"), "监听地址")
+	defaultDir, defaultAddr := "data/"+command, ":5353"
+	if command == "standalone" {
+		executable, e := os.Executable()
+		if e != nil {
+			slog.Error("无法确定程序目录", "error", e)
+			os.Exit(1)
+		}
+		defaultDir, defaultAddr = filepath.Join(filepath.Dir(executable), "data"), ":53"
+	}
+	dir := flags.String("data", env("DATA_DIR", defaultDir), "数据目录")
+	addr := flags.String("listen", env("LISTEN_ADDR", defaultAddr), "DNS 监听地址")
+	var ip *string
+	if command == "standalone" {
+		ip = flags.String("ip", env("NAS_IP", ""), "本机固定局域网 IPv4，用于接入指引")
+	}
 	flags.Parse(os.Args[2:])
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if command == "standalone" {
+		if *ip != "" {
+			address := net.ParseIP(*ip)
+			if address == nil || address.To4() == nil || !address.IsGlobalUnicast() || address.IsLoopback() {
+				slog.Error("-ip 必须是本机固定局域网 IPv4")
+				os.Exit(2)
+			}
+			os.Setenv("NAS_IP", *ip)
+		}
+		if e := runStandalone(ctx, *dir, *addr, env("WEB_ADDR", ":8080")); e != nil {
+			slog.Error("单机服务退出", "error", e)
+			os.Exit(1)
+		}
+		return
+	}
 	token := env("SERVICE_TOKEN", "")
 	if f := os.Getenv("SERVICE_TOKEN_FILE"); f != "" {
 		b, e := os.ReadFile(f)
@@ -77,8 +107,6 @@ func main() {
 		slog.Error("数据目录不可写", "error", e)
 		os.Exit(1)
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 	errs := make(chan error, 3)
 	switch command {
 	case "dns":

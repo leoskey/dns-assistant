@@ -34,6 +34,36 @@ const path = require("node:path");
     await page.getByRole("heading", { level: 1 }).waitFor();
     assert.equal(await page.title(), "DNS Assistant — 为主机下载，选好节点");
     assert.equal(await page.getByRole("heading", { level: 1 }).count(), 1);
+    const version = fs
+      .readFileSync(path.join(__dirname, "../internal/app/VERSION"), "utf8")
+      .trim();
+    assert.equal(
+      await page
+        .getByRole("link", { name: "下载 Windows 安装包", exact: true })
+        .getAttribute("href"),
+      `https://github.com/leoskey/dns-assistant/releases/download/v${version}/dns-assistant-${version}-windows-amd64-setup.exe`,
+    );
+    assert.equal(
+      await page
+        .getByRole("link", { name: "便携 ZIP", exact: true })
+        .getAttribute("href"),
+      `https://github.com/leoskey/dns-assistant/releases/download/v${version}/dns-assistant-${version}-windows-amd64.zip`,
+    );
+    assert.equal(
+      await page
+        .getByRole("link", { name: "Docker 部署指南", exact: true })
+        .getAttribute("href"),
+      `https://github.com/leoskey/dns-assistant/blob/v${version}/docs/deployment.md`,
+    );
+    assert(
+      (await page.locator(".hero-content > p").textContent()).includes(
+        "Windows",
+      ),
+    );
+    assert.equal(
+      (await page.locator(".version").textContent()).trim(),
+      `v${version}`,
+    );
     assert(
       !/\bNAS\b/i.test(await page.locator("body").textContent()),
       "website must not advertise NAS support",
@@ -201,7 +231,7 @@ const path = require("node:path");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "Website checks passed: B direction, 5 widths, artwork, keyboard, platforms, copy/fallback, anchors, logo/old-layout removal, contrast, type sizes, browser errors.",
+      "Website checks passed: release links and version, 5 widths, artwork, keyboard, platforms, copy/fallback, anchors, logo/old-layout removal, contrast, type sizes, browser errors.",
     );
   } finally {
     await browser.close();

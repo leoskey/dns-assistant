@@ -8,6 +8,8 @@
 
 ## GHCR 发布流程
 
+同一工作流也在 Windows runner 构建安装程序、便携 ZIP 与校验清单，执行 Windows 原生生命周期及安装／卸载检查，然后上传 Actions artifacts。版本标签在测试、Windows 包及双架构镜像检查全部通过后自动发布 GitHub Release；发布说明使用对应 `docs/releases/vX.Y.Z.md`，附件包含安装程序、ZIP 和校验清单。Windows 打包与使用见 [单机安装说明](windows.md)。
+
 镜像地址：`ghcr.io/leoskey/dns-assistant`。工作流位于 [.github/workflows/docker.yml](../.github/workflows/docker.yml)，由 main 推送、`vX.Y.Z` 标签或手动触发；PR 只验证。推送到自己的 fork 时会发布到该 fork 的 GHCR 命名空间，部署时同步修改 `DNS_ASSISTANT_IMAGE`。
 
 ## 流程与权限
@@ -25,11 +27,11 @@ main 的新运行会取消同一分支的旧运行，版本标签的发布不被
 
 程序版本保存在 `internal/app/VERSION`，使用三段数字（例如 `0.1.0`）：功能兼容修复递增补丁号，新增兼容功能递增次版本，不兼容变更递增主版本。规则表版本和数据库 schema 版本独立维护。
 
-升级程序版本时，同步执行 `npm --prefix web version 新版本号 --no-git-tag-version` 更新前端包与锁文件，并修改 README 的当前源码版本。CI 检查它们与 VERSION 一致，并拒绝与程序版本不一致的 Git 标签。版本在管理页“设置”、`GET /api/v1/status` 的 `app_version` 和 `dns-assistant version` 中可查；发布镜像还注入源码提交号，并将相同版本写入 OCI 的 `org.opencontainers.image.version` 标签。
+升级程序版本时，同步执行 `npm --prefix web version 新版本号 --no-git-tag-version` 更新前端包与锁文件，并更新 README、`.env.example` 镜像版本、官网链接与页脚、`docs/releases/vX.Y.Z.md`。CI 检查这些入口与 VERSION 一致，并拒绝与程序版本不一致的 Git 标签。版本在管理页“设置”、`GET /api/v1/status` 的 `app_version` 和 `dns-assistant version` 中可查；发布镜像还注入源码提交号，并将相同版本写入 OCI 的 `org.opencontainers.image.version` 标签。
 
 - main：`latest` 和 `sha-完整提交号`。latest 由通过测试的 main 发布任务更新；部署前仍须检查发布后的镜像校验结果。
-- `vX.Y.Z`：`X.Y.Z`、`X.Y` 和提交号标签；版本发布不移动 latest。次版本标签会指向该系列最近一次发布。
-- 手动运行：按所选分支／标签生成标签；仅 main 生成 latest。
+- `vX.Y.Z`：`X.Y.Z`、`X.Y`、提交号和 `latest` 标签。次版本标签会指向该系列最近一次发布。
+- 手动运行：按所选分支／版本标签生成对应标签；main 与版本标签生成 latest。
 
 发布版本示例：
 
@@ -91,7 +93,7 @@ Docker Hub 的 `registry-mirrors` 不会重定向 GHCR，因此本方案按项�
 
 ## 升级与源码构建
 
-按 [部署说明](deployment.md) 操作。单独使用 `compose.yaml` 时拉取 `DNS_ASSISTANT_IMAGE`；README 的源码部署同时使用 `compose.build.yaml`，显式覆盖两个服务为本地构建。两种方式共享端口、密钥与卷定义，维护命令须保持所选方式一致。
+按 [部署说明](deployment.md) 操作。单独使用 `compose.yaml` 时拉取 `DNS_ASSISTANT_IMAGE`；源码部署同时使用 `compose.build.yaml`，显式覆盖两个服务为本地构建。两种方式共享端口、密钥与卷定义，维护命令须保持所选方式一致。
 
 保留现有项目名称、环境文件和两个数据卷。镜像部署修改目标版本后执行 pull 与 up；源码部署切换源码后，带上两个 `-f` 参数执行 build 与 up。不使用 `down -v`。回滚到固定镜像或源码版本时保持相应部署方式；数据库格式发生变化时，按迁移说明同时恢复匹配的数据卷快照。
 

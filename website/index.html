@@ -6,11 +6,14 @@
     <title>DNS Assistant — 为主机下载，选好节点</title>
     <meta
       name="description"
-      content="家庭游戏主机 DNS 优选工具。支持 Docker 部署，自动测速、按域名选优与故障回退。"
+      content="家庭游戏主机 DNS 优选工具。支持 Windows 单机安装与 Docker 部署，自动测速、按域名选优与故障回退。"
     />
     <meta name="theme-color" content="#111113" />
     <meta property="og:title" content="DNS Assistant — 为主机下载，选好节点" />
-    <meta property="og:description" content="自动测速，为主机选择下载节点。" />
+    <meta
+      property="og:description"
+      content="Windows 单机安装或 Docker 部署，自动测速，为主机选择下载节点。"
+    />
     <meta property="og:type" content="website" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./style.css" />
@@ -53,7 +56,7 @@
           >GitHub<svg class="icon small"><use href="#external" /></svg
         ></a>
       </nav>
-      <a class="button primary header-deploy" href="#start">开始部署</a>
+      <a class="button primary header-deploy" href="#start">下载与部署</a>
     </header>
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
@@ -66,10 +69,12 @@
         />
         <div class="hero-content">
           <h1 id="hero-title">为主机下载，<br />选好节点。</h1>
-          <p>家庭游戏主机 DNS 优选工具，支持 Docker 部署。</p>
+          <p>
+            家庭游戏主机 DNS 优选工具，支持 Windows 单机安装与 Docker 部署。
+          </p>
           <div class="hero-actions">
             <a class="button primary" href="#start"
-              >开始部署<svg class="icon"><use href="#arrow" /></svg></a
+              >下载与部署<svg class="icon"><use href="#arrow" /></svg></a
             ><a
               class="button secondary"
               href="https://github.com/leoskey/dns-assistant"
@@ -159,30 +164,53 @@
         aria-labelledby="start-title"
       >
         <div class="start-copy">
-          <h2 id="start-title">使用 Docker，<br />开始部署。</h2>
+          <h2 id="start-title">在 Windows 上，<br />直接运行。</h2>
           <div class="requirements">
-            <span>Docker Compose</span><span>固定 IPv4</span>
+            <span>Windows 10 / 11 x64</span><span>无需 Docker</span>
           </div>
           <a
             class="button primary"
-            href="https://github.com/leoskey/dns-assistant#快速部署与接入"
-            >部署指南<svg class="icon small"><use href="#external" /></svg
+            href="https://github.com/leoskey/dns-assistant/releases/download/v0.2.0/dns-assistant-0.2.0-windows-amd64-setup.exe"
+            >下载 Windows 安装包<svg class="icon small">
+              <use href="#external" /></svg
           ></a>
+          <div class="download-links">
+            <a
+              href="https://github.com/leoskey/dns-assistant/releases/download/v0.2.0/dns-assistant-0.2.0-windows-amd64.zip"
+              >便携 ZIP</a
+            >
+            <a
+              href="https://github.com/leoskey/dns-assistant/blob/v0.2.0/docs/windows.md"
+              >安装说明</a
+            >
+            <a
+              href="https://github.com/leoskey/dns-assistant/releases/tag/v0.2.0"
+              >v0.2.0 更新记录</a
+            >
+          </div>
+          <p class="download-note">
+            启动后保持服务窗口打开，或选择 Docker 部署。
+          </p>
         </div>
         <div class="install-panel">
           <div class="install-header">
-            <span>获取源码</span
+            <span>Docker 部署</span
             ><button type="button" class="copy-button" id="copy-command">
               <svg class="icon small"><use href="#copy" /></svg>复制命令
             </button>
           </div>
           <pre
             tabindex="0"
-            aria-label="获取源码命令"
-          ><code id="install-command">git clone https://github.com/leoskey/dns-assistant.git
+            aria-label="获取 Docker 部署配置"
+          ><code id="install-command">git clone --branch v0.2.0 --depth 1 https://github.com/leoskey/dns-assistant.git
 cd dns-assistant
 cp .env.example .env</code></pre>
-          <p class="install-warning">管理页面仅在受信任局域网开放。</p>
+          <p class="install-warning">
+            填写固定 IPv4 与服务密钥后启动。<a
+              href="https://github.com/leoskey/dns-assistant/blob/v0.2.0/docs/deployment.md"
+              >Docker 部署指南</a
+            >
+          </p>
           <p
             class="copy-status"
             id="copy-status"
@@ -191,7 +219,8 @@ cp .env.example .env</code></pre>
           ></p>
         </div>
         <p class="operating-note">
-          测速产生下载流量。服务主机停机前，请将游戏主机 DNS 恢复自动。<a
+          测速产生下载流量。服务仅在受信任局域网开放，停机前请将游戏主机 DNS
+          恢复自动。<a
             href="https://github.com/leoskey/dns-assistant#适用范围与限制"
             >适用范围<svg class="icon small"><use href="#external" /></svg
           ></a>
@@ -202,7 +231,7 @@ cp .env.example .env</code></pre>
       <a class="brand" href="#"
         ><svg class="brand-mark"><use href="#mark" /></svg>DNS Assistant<span
           class="version"
-          >v0.1.0</span
+          >v0.2.0</span
         ></a
       >
       <div>

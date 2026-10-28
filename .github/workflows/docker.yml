@@ -1,4 +1,4 @@
-name: Docker images
+name: Application release
 
 on:
   push:
@@ -51,6 +51,10 @@ jobs:
           const version = readFileSync('internal/app/VERSION', 'utf8').trim();
           assert.match(version, /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/);
           assert(readFileSync('README.md', 'utf8').includes(`当前源码版本：**v${version}**`), 'README version differs');
+          const website = readFileSync('website/index.html', 'utf8');
+          assert(website.includes(`/releases/download/v${version}/dns-assistant-${version}-windows-amd64-setup.exe`), 'website installer version differs');
+          assert(website.includes(`/releases/download/v${version}/dns-assistant-${version}-windows-amd64.zip`), 'website portable version differs');
+          assert(readFileSync('.env.example', 'utf8').includes(`DNS_ASSISTANT_IMAGE=ghcr.io/leoskey/dns-assistant:${version}`), 'example image version differs');
           for (const file of ['web/package.json', 'web/package-lock.json']) {
             const data = JSON.parse(readFileSync(file, 'utf8'));
             assert.equal(data.version, version, `${file} version differs`);
@@ -65,6 +69,45 @@ jobs:
         run: go test -race ./...
       - name: Vet Go
         run: go vet ./...
+
+  windows:
+    name: Windows x64 installer and portable package
+    needs: test
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+          cache: true
+      - name: Build Windows packages
+        shell: powershell
+        run: ./scripts/package-windows.ps1
+      - name: Test Windows lifecycle and installer
+        shell: powershell
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-package.ps1
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dns-assistant-windows-amd64
+          path: |
+            artifacts/releases/*.zip
+            artifacts/releases/*-setup.exe
+            artifacts/releases/SHA256SUMS
+          if-no-files-found: error
 
   publish:
     name: Publish amd64 and arm64
@@ -101,7 +144,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
             type=sha,format=long
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -147,3 +190,33 @@ jobs:
             echo 'Platforms: linux/amd64, linux/arm64'
             echo 'Both platform binaries passed the config and version command smoke tests.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, windows, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dns-assistant-windows-amd64
+          path: artifacts/release
+      - name: Publish verified packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          (cd artifacts/release && sha256sum --check SHA256SUMS)
+          cp "docs/releases/$RELEASE_TAG.md" "$RUNNER_TEMP/release-notes.md"
+          printf '\nDocker image digest: `%s`\n' "$IMAGE_DIGEST" >> "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" --draft --verify-tag --title "DNS Assistant $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md" artifacts/release/*.zip artifacts/release/*-setup.exe artifacts/release/SHA256SUMS
+          gh release edit "$RELEASE_TAG" --draft=false --latest
