@@ -35,13 +35,13 @@ const path = require("node:path");
     assert.equal(await page.title(), "DNS Assistant — 为主机下载，选好节点");
     assert.equal(await page.getByRole("heading", { level: 1 }).count(), 1);
     assert(
-      !/\bNAS\b/i.test(await page.locator("body").textContent()),
-      "website must not advertise NAS support",
+      (await page.locator("body").textContent()).includes("支持 Docker 部署"),
+      "website must describe Docker deployment",
     );
     for (const meta of await page
       .locator('meta[name="description"], meta[property="og:description"]')
       .all())
-      assert(!/\bNAS\b/i.test(await meta.getAttribute("content")));
+      assert((await meta.getAttribute("content")).includes("主机"));
     await page.keyboard.press("Tab");
     assert.equal(await page.locator(":focus").textContent(), "跳到主要内容");
     assert.equal(

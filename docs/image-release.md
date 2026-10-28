@@ -8,6 +8,8 @@
 
 ## GHCR 发布流程
 
+同一工作流也在 Windows runner 构建安装程序、便携 ZIP 与校验清单，执行 Windows 原生生命周期及安装／卸载检查，然后上传 Actions artifacts。此步骤不自动发布 GitHub Release；Windows 打包与使用见 [单机安装说明](windows.md)。
+
 镜像地址：`ghcr.io/leoskey/dns-assistant`。工作流位于 [.github/workflows/docker.yml](../.github/workflows/docker.yml)，由 main 推送、`vX.Y.Z` 标签或手动触发；PR 只验证。推送到自己的 fork 时会发布到该 fork 的 GHCR 命名空间，部署时同步修改 `DNS_ASSISTANT_IMAGE`。
 
 ## 流程与权限

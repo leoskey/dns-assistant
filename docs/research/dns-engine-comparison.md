@@ -1,10 +1,10 @@
 # DNS 引擎比较与建议
 
-调研日期：2026-10-20。状态：上游资料对比。当前实现已采用 dnsproxy，软件与容器证据见 [验证记录](../validation.md)，NAS 和真实主机仍分别验收。本文件仅使用项目官方文档、上游源码与 Go 官方包索引中的上游文档；不以宣传性能数字作为本产品指标。
+调研日期：2026-10-20。状态：上游资料对比。当前实现已采用 dnsproxy，软件与容器证据见 [验证记录](../validation.md)，服务主机和真实主机仍分别验收。本文件仅使用项目官方文档、上游源码与 Go 官方包索引中的上游文档；不以宣传性能数字作为本产品指标。
 
 ## 当前有效需求
 
-中国大陆家宽，NAS 上 Docker Compose 部署，先由 PS、Xbox、Switch 手动使用 NAS DNS。服务启动后以及运行期间自动筛选候选节点、测量可用性和下载吞吐、选择并发布有效 IP；DNS 请求不等待吞吐测试。无合格结果时正常转发上游；后台异常不能让解析阻塞。当前产品仅优选 IPv4，测速按时间窗口执行。此处“最优”指本轮验证过的候选中当前下载速度最佳，不保证全网全局最优。
+中国大陆家宽，服务主机上 Docker Compose 部署，先由 PS、Xbox、Switch 手动使用服务主机 DNS。服务启动后以及运行期间自动筛选候选节点、测量可用性和下载吞吐、选择并发布有效 IP；DNS 请求不等待吞吐测试。无合格结果时正常转发上游；后台异常不能让解析阻塞。当前产品仅优选 IPv4，测速按时间窗口执行。此处“最优”指本轮验证过的候选中当前下载速度最佳，不保证全网全局最优。
 
 ## 推荐结论
 
@@ -19,7 +19,7 @@
 | 方案 | 协议与上游 | 缓存与扩展边界 | 对本项目的判断 |
 |---|---|---|---|
 | github.com/miekg/dns 旧版 | UDP/TCP、IPv4/IPv6、DoT；DoH 要另加实现 | 协议库，服务端/客户端 API 齐全，但产品需要的缓存、上游选择、回退和配置生命周期仍需组装 | 不把它当成完整 DNS 代理；不作为新项目直接实现整套代理的首选 [上游 README](https://github.com/miekg/dns#readme) |
-| codeberg.org/miekg/dns 新一代（上游称 DNS version 2） | 上游文档列出 UDP/TCP、IPv4/IPv6、DoT 和 dnshttp 中的 DoH | 仍是底层库；上游明确年轻、允许不兼容变更，Go 包索引当前仍显示未稳定状态 | 作为迁移研究项；“第二代”不能写成已发布稳定语义版本 v2，也不把上游速度宣称当 NAS 结果 [上游文档的 Go 官方索引](https://pkg.go.dev/codeberg.org/miekg/dns) |
+| codeberg.org/miekg/dns 新一代（上游称 DNS version 2） | 上游文档列出 UDP/TCP、IPv4/IPv6、DoT 和 dnshttp 中的 DoH | 仍是底层库；上游明确年轻、允许不兼容变更，Go 包索引当前仍显示未稳定状态 | 作为迁移研究项；“第二代”不能写成已发布稳定语义版本 v2，也不把上游速度宣称当服务主机结果 [上游文档的 Go 官方索引](https://pkg.go.dev/codeberg.org/miekg/dns) |
 | AdguardTeam/dnsproxy | UDP/TCP、IPv4/IPv6；支持 DoH/DoT/DoQ/DNSCrypt 等上游 | 有缓存、超时与回退、按域名上游；Config.RequestHandler 可替代默认处理器 | 主候选；业务策略通过自有快照更新，监听端口和上游配置变更另走受控重启，不假定 CLI YAML 自动热更新 [README](https://github.com/AdguardTeam/dnsproxy#readme)、[Config](https://github.com/AdguardTeam/dnsproxy/blob/master/proxy/config.go) |
 | CoreDNS 插件 | UDP/TCP 与 IPv4/IPv6；当前 forward 文档含 DoT、DoH | cache、reload、hosts 等已有插件；业务逻辑可独立插件承载 | 备选；插件编译和发布链更重，频繁策略更新应走插件内快照，不反复重载整个 Corefile [forward](https://coredns.io/plugins/forward/)、[插件模型](https://coredns.io/2017/07/23/corefile-explained/) |
 | SmartDNS | UDP/TCP、双栈、DoT/DoH 等，配置含缓存持久化与规则 | 内置探测选 IP；域名规则可指定地址、分组及探测方式；动态规则提交和缓存刷新需要单独验证 | 适合作为家庭 DNS 对照基线；其内置速度选择不是游戏下载吞吐排名，仍需额外选优器 [官方示例配置](https://github.com/pymumu/smartdns/blob/master/etc/smartdns/smartdns.conf) |
@@ -74,7 +74,7 @@
 | 策略与缓存 | 旧上游缓存存在时能立即应用新策略；策略失效后恢复普通解析；无策略时不等待测速；切换并发无数据竞态 |
 | 上游 | UDP/TCP/DoH 的启动解析、证书校验、超时与回退通过；禁止 DNS 自指环路 |
 | 吞吐探测 | 原域名 Host/SNI 不变；证书、响应和内容受检查；Range 被忽略时仍能强制停止读取；测量窗口、预热与取消生效 |
-| NAS 网络 | 主机查询真实到达；NAS 与主机使用相同外网出口；53 端口冲突、宿主机防火墙、IPv4 接入和重启恢复通过 |
+| 服务主机网络 | 主机查询真实到达；服务主机与游戏主机使用相同外网出口；53 端口冲突、宿主机防火墙、IPv4 接入和重启恢复通过 |
 | 故障隔离 | 管理服务或测速任务异常时，DNS 已发布策略和普通解析继续服务；策略到期后有可预测行为 |
 | 主机实测 | 三平台真实内容多轮对比，分开报告服务端探测与主机实际下载收益 |
 

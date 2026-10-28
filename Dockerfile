@@ -20,6 +20,12 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 FROM build AS test
 RUN go test -race ./...
 
+FROM build AS windows-build
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X dns-assistant/internal/app.Revision=$VCS_REF" -o /out/dns-assistant.exe ./cmd/dns-assistant
+
+FROM scratch AS windows-binary
+COPY --from=windows-build /out/dns-assistant.exe /dns-assistant.exe
+
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/* && useradd -u 10001 -m assistant && mkdir -p /data && chown assistant:assistant /data
 COPY --from=build /out/dns-assistant /usr/local/bin/dns-assistant

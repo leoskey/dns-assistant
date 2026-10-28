@@ -6,7 +6,7 @@
 
 当前源码版本：**v0.1.0**。管理页面“设置”中可查看正在运行的版本，命令行使用 `dns-assistant version`。
 
-基于 Docker 部署的家庭游戏主机 DNS 优选工具。针对配置的 Xbox、PlayStation 和 Nintendo Switch 域名，在服务主机上测试候选公网 IPv4 的持续下载速度，并将合格节点用于后续 DNS 应答。
+支持 Docker 部署与 Windows x64 单机安装的家庭游戏主机 DNS 优选工具。针对配置的 Xbox、PlayStation 和 Nintendo Switch 域名，在服务主机上测试候选公网 IPv4 的持续下载速度，并将合格节点用于后续 DNS 应答。
 
 提供中文管理页面，局域网直接访问，无需登录，也不需要安装 AdGuard Home。项目优化的是已配置域名的节点选择；实际游戏下载效果取决于规则、样本和家庭网络。
 
@@ -21,7 +21,7 @@
 
 完整测速会占用带宽并产生实际下载流量。默认调度为低频执行，可在设置中调整或暂停自动选优。
 
-当前面向通用 Docker 环境；NAS 平台暂不支持。
+项目面向通用服务器，支持 Docker 和 Windows 单机部署，不限定硬件品牌或设备类别。
 
 ## 工作方式
 
@@ -35,6 +35,8 @@
 
 ## 快速部署与接入
 
+可选择 **Docker 部署**或 **Windows 单机安装**。Docker 使用下面的 Compose 流程；Windows 使用安装 EXE 或便携 ZIP，内置管理页面，无需 Docker 与开发环境，具体见 [Windows 安装与升级](docs/windows.md)。两种方式均需要固定局域网 IPv4、TCP／UDP 53 和 TCP 8080。Windows 单机程序退出时 DNS 与管理一同停止。
+
 ### 环境要求
 
 - 支持 Docker Engine 与 Compose v2 的服务主机，使用固定局域网 IPv4。
@@ -45,13 +47,14 @@
 
 ### 安装
 
+
 ```sh
 git clone https://github.com/leoskey/dns-assistant.git
 cd dns-assistant
 cp .env.example .env
 ```
 
-编辑 `.env`，将 `NAS_IP` 改为服务主机的固定局域网 IPv4，然后构建镜像并生成服务密钥：
+编辑 `.env`，将 `SERVER_IP` 改为服务主机的固定局域网 IPv4，然后构建镜像并生成服务密钥：
 
 ```sh
 docker compose -f compose.yaml -f compose.build.yaml build
@@ -66,11 +69,11 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --wait
 docker compose -f compose.yaml -f compose.build.yaml ps
 ```
 
-两项服务应显示为 `healthy`。在浏览器访问 `http://NAS_IP:8080`。源码部署后续操作继续带上这两个 `-f` 参数，避免切回其他镜像。
+两项服务应显示为 `healthy`。在浏览器访问 `http://SERVER_IP:8080`。源码部署后续操作继续带上这两个 `-f` 参数，避免切回其他镜像。
 
 管理页面免登录，只应在受信任局域网开放。使用服务主机主机名或反向代理时，将允许的主机名加入 `.env` 的 `ADMIN_HOSTS`；不要将管理入口直接暴露到公网。
 
-`NAS_IP` 保留为现有环境变量名称，其值是服务主机 IPv4，不表示 NAS 平台支持。
+服务主机地址统一使用 `SERVER_IP`。升级旧部署时，将 `.env` 中原有的地址配置项改名为 `SERVER_IP`，保留原值及 `SERVICE_TOKEN`，并同步更新自定义 Compose 的变量引用；数据卷无需迁移。
 
 ### 连接游戏主机
 
@@ -85,6 +88,7 @@ docker compose -f compose.yaml -f compose.build.yaml ps
 ## 适用范围与限制
 
 - **规则只作用于精确域名。** 默认内置 Xbox 全球／国内域名、PlayStation 下载与测速样本、Nintendo 连接测试样本；内置不代表已在每个家庭网络中验证，也不代表覆盖平台全部下载域名。
+- **支持自定义下载域名。** 添加及导入规则不限制平台域名后缀，仍校验公网 IPv4、标准 HTTP(S) 端口及重定向范围。
 - **样本必须适用于当前域名。** 节点需返回有效内容且样本足够覆盖测速窗口。样本失效、需要设备认证或签名过期时，应更换可用样本，不能强行视为测速成功。
 - **连接测试与游戏下载分别判断。** Switch 的 `ctest` 等连接测试成绩不能证明实际游戏下载更快；实际下载域名需要对应的有效内容样本。
 - **服务主机测速不是主机实时速度。** DNS 记录只能说明收到了哪些查询，不能显示游戏下载进度、HTTPS 内容或实际下载带宽。经路由器转发时，查询来源可能只显示路由器。
@@ -123,6 +127,7 @@ go build -o bin/dns-assistant ./cmd/dns-assistant
 - [实现与技术选型](docs/architecture/technology-selection.md)
 - [管理 API](docs/api.md)
 - [镜像发布维护](docs/image-release.md)
+- [Windows 单机安装与打包](docs/windows.md)
 - [产品官网开发与验证](docs/website.md)
 - [第三方组件许可](THIRD_PARTY_NOTICES.md)
 

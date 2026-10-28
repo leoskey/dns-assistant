@@ -76,7 +76,7 @@ export function ConsoleSetup({
     } catch {
       field.current?.focus();
       field.current?.select();
-      // NAS HTTP pages may lack Clipboard API access; retain selection if copying is denied.
+      // LAN HTTP pages may lack Clipboard API access; retain selection if copying is denied.
       let copied = false;
       try {
         copied = document.execCommand("copy");
@@ -135,8 +135,7 @@ export function ConsoleSetup({
             </>
           ) : (
             <p className="setup-warning" role="status">
-              尚未配置主机可用的 DNS 地址。请在部署配置中将 NAS_IP 设为 NAS
-              的固定局域网 IP，并重建管理容器。
+              尚未设置接入地址。请按安装说明配置服务主机的固定局域网 IPv4，然后重新启动服务。
             </p>
           )}
           <dl className="setup-facts">
@@ -169,7 +168,7 @@ export function ConsoleSetup({
           </details>
           {!connected && (
             <p className="setup-warning">
-              先确认 NAS 的 DNS 容器已启动，再修改主机设置。
+              先确认 DNS 服务已启动，再修改主机设置。
             </p>
           )}
         </div>

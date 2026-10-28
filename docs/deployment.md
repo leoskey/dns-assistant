@@ -2,18 +2,20 @@
 
 更新：2026-10-28。本文提供通用部署与维护步骤；验证范围见 [验证记录](validation.md)。以下检查不修改路由器、防火墙或现有 DNS。
 
-当前说明覆盖通用 Docker 环境；NAS 平台暂不支持。现有配置名 `NAS_IP` 表示服务主机 IPv4，保持兼容。
+当前说明覆盖通用 Docker 环境，不限定硬件品牌或设备类别；`SERVER_IP` 表示服务主机的局域网 IPv4。
 
 ## 安装前
 
+无需 Docker 的 Windows x64 安装程序和便携版见 [Windows 单机安装](windows.md)。两种方式独立选择，不要在同一 IP 上同时占用 53 和 8080。
+
 1. 用 `docker version` 与 `docker compose version` 确认 daemon 和 Compose v2。
-2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 NAS_IP。
+2. 服务主机通过 DHCP 保留或静态配置拥有稳定的局域网地址；在 .env 填 SERVER_IP。
 3. 检查 TCP／UDP 53 和 TCP 8080 的现有占用，运行 `sh deploy/preflight.sh` 辅助诊断。
 4. Docker named volumes 位于服务主机本地存储，不使用 NFS／SMB 作为 SQLite WAL 数据目录。
 5. 镜像运行 UID/GID 为 10001:10001。默认新命名卷继承镜像 /data 的所有权；若替换成 bind mount，预先给目录匹配的读写权限，勿把整个服务主机目录授权给容器。
 6. 运行 keygen 生成随机服务密钥，两个容器使用同一值；保留 .env，不提交到 Git。
 7. 按选定部署方式执行 Compose 配置校验并启动，两个服务均应显示 healthy。
-8. Compose 对外仅发布 IPv4 端口，NAS_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
+8. Compose 对外仅发布 IPv4 端口，SERVER_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
 单独使用 `compose.yaml` 时，默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取发布镜像，Docker 按 manifest 匹配 amd64／arm64；可用 `DNS_ASSISTANT_IMAGE` 固定已发布版本或摘要。部署前核对目标发布的版本、提交与架构，源码更新不代表镜像已更新。[README](../README.md) 的快速部署采用源码构建，使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
 
@@ -23,9 +25,9 @@
 
 ## 接入
 
-浏览器打开 http://NAS_IP:8080，无需登录。管理仅用于受信任局域网，勿转发管理端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；服务主机反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。
+浏览器打开 http://SERVER_IP:8080，无需登录。管理仅用于受信任局域网，勿转发管理端口至公网。主机名访问使用 ADMIN_HOSTS 允许列表；服务主机反向代理应限制来源，不把所有转发来源当作外网访问的保护措施。
 
-游戏主机将 DNS 设置为 NAS_IP，重新运行网络测试，观察“接入检查”中的真实来源与域名。Windows Docker Desktop 的转发可能合并来源，不能据此声称已识别每台主机。
+游戏主机将 DNS 设置为 SERVER_IP，重新运行网络测试，观察“接入检查”中的真实来源与域名。Windows Docker Desktop 的转发可能合并来源，不能据此声称已识别每台主机。
 
 有下载节点拒绝测试内容时，查看平台页与历史错误，不强制绑定该 IP。Xbox com／cn 不互换 IP；Nintendo 的联网测试地址与游戏下载不同，实际下载域名必须提供对应有效样本。
 

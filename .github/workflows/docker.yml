@@ -66,6 +66,45 @@ jobs:
       - name: Vet Go
         run: go vet ./...
 
+  windows:
+    name: Windows x64 installer and portable package
+    needs: test
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+          cache: true
+      - name: Build Windows packages
+        shell: powershell
+        run: ./scripts/package-windows.ps1
+      - name: Test Windows lifecycle and installer
+        shell: powershell
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-package.ps1
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dns-assistant-windows-amd64
+          path: |
+            artifacts/releases/*.zip
+            artifacts/releases/*-setup.exe
+            artifacts/releases/SHA256SUMS
+          if-no-files-found: error
+
   publish:
     name: Publish amd64 and arm64
     if: github.event_name != 'pull_request'

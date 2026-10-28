@@ -22,6 +22,20 @@ import (
 	"time"
 )
 
+func TestConfigRejectsServerAsUpstream(t *testing.T) {
+	// Private addresses in these tests are synthetic fixtures.
+	t.Setenv("SERVER_IP", "192.168.50.10")
+	c := DefaultConfig()
+	c.Upstreams = []string{"192.168.50.10:53"}
+	if err := c.Validate(); err == nil {
+		t.Fatal("server address accepted as its own upstream")
+	}
+	c.Upstreams = []string{"192.168.50.1:53"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("other upstream rejected: %v", err)
+	}
+}
+
 func TestConfigTrustBoundaries(t *testing.T) {
 	c := DefaultConfig()
 	if e := c.Validate(); e != nil {
@@ -38,7 +52,7 @@ func TestConfigTrustBoundaries(t *testing.T) {
 		}
 	}
 	cases := []func(*Config){func(c *Config) { c.AllowedCIDRs = []string{"0.0.0.0/0"} }, func(c *Config) { c.Upstreams = []string{"127.0.0.1:53"} }, func(c *Config) { c.Rules[0].URL = "http://10.0.0.1/private" }, func(c *Config) {
-		c.Rules[0].Domain = "login.microsoft.com"
+		c.Rules[0].Domain = "downloads.example"
 		c.Rules[0].URL = "https://login.microsoft.com/"
 	}, func(c *Config) { c.Rules[0].Candidates = []string{"192.168.1.1"} }, func(c *Config) { c.ProbeSeconds = 0 }, func(c *Config) { c.Rules = append(c.Rules, c.Rules[0]) }}
 	for i, change := range cases {
@@ -134,7 +148,7 @@ func TestProbeHTTPBoundaries(t *testing.T) {
 		prefix  string
 	}{
 		{"valid range", func(w http.ResponseWriter, r *http.Request) {
-			if r.Host != "xvcf1.xboxlive.com" || r.Header.Get("Range") == "" {
+			if r.Host != "downloads.example" || r.Header.Get("Range") == "" {
 				t.Error("host or range missing")
 			}
 			w.Header().Set("Content-Type", "application/octet-stream")
@@ -160,12 +174,31 @@ func TestProbeHTTPBoundaries(t *testing.T) {
 			w.Write(bytes.Repeat([]byte("b"), 65536))
 		}, false, "aaa"},
 		{"redirect", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "http://127.0.0.1/private", 302) }, false, ""},
+		{"redirect host", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "http://other.example/sample", 302) }, false, ""},
+		{"redirect port", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "http://downloads.example:8080/sample", 302)
+		}, false, ""},
+		{"redirect scheme", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "https://downloads.example/sample", 302)
+		}, false, ""},
+		{"redirect path", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/other", 302) }, false, ""},
+		{"redirect loop", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/sample", 302) }, false, ""},
+		{"redirect query", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.RawQuery == "" {
+				http.Redirect(w, r, "/sample?download=1", 302)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write(bytes.Repeat([]byte("a"), 65536))
+		}, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := probeFixture(t, tc.handler)
 			c := DefaultConfig()
 			r := c.Rules[0]
+			r.Domain = "downloads.example"
+			r.URL = "http://downloads.example/sample"
 			r.ExpectedPrefix = tc.prefix
 			v := p.Probe(context.Background(), r, "1.1.1.1", c, "health")
 			if math.IsNaN(v.Speed) || math.IsInf(v.Speed, 0) {
@@ -460,15 +493,15 @@ func testAPI(t *testing.T) (*API, http.Handler) {
 func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 	_, h := testAPI(t)
 	for _, tc := range []struct{ configured, want string }{
-		{"192.168.2.100", "192.168.2.100"},
-		{" 192.168.2.100 ", "192.168.2.100"},
+		{"192.168.50.10", "192.168.50.10"},
+		{" 192.168.50.10 ", "192.168.50.10"},
 		{"fd12::100", ""},
-		{"", ""}, {"localhost", ""}, {"192.168.2.100:8080", ""},
+		{"", ""}, {"localhost", ""}, {"192.168.50.10:8080", ""},
 		{"127.0.0.1", ""}, {"::1", ""}, {"0.0.0.0", ""},
 		{"169.254.1.1", ""}, {"224.0.0.1", ""}, {"2606:4700:4700::1111", ""},
 	} {
 		t.Run(tc.configured, func(t *testing.T) {
-			t.Setenv("NAS_IP", tc.configured)
+			t.Setenv("SERVER_IP", tc.configured)
 			r := call(h, "GET", "/api/v1/status", "", "", "")
 			var status struct {
 				DNSAddress string `json:"dns_address"`

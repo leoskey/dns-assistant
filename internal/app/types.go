@@ -111,7 +111,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("上游须为 IP:端口 或 https:// 地址: %s", s)
 		}
 		ip, e := netip.ParseAddr(host)
-		if e != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsLoopback() || host == os.Getenv("NAS_IP") {
+		if e != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsLoopback() || host == os.Getenv("SERVER_IP") {
 			return errors.New("上游必须是明确的非环回 IP，不能指向服务自身")
 		}
 		if port != "53" && port != "5353" {
@@ -166,16 +166,6 @@ func (c Config) Validate() error {
 		u, e := url.Parse(r.URL)
 		if e != nil || !(u.Scheme == "http" || u.Scheme == "https") || u.Hostname() != r.Domain || u.User != nil || u.Fragment != "" || u.Port() != "" && u.Port() != "80" && u.Port() != "443" {
 			return errors.New("测试 URL 须使用规则本身的域名及标准 HTTP(S) 端口")
-		}
-		// Restrict probes to download hosts, avoiding login, payment and arbitrary destinations.
-		allowed := false
-		for _, suffix := range []string{".xboxlive.com", ".xboxlive.cn", ".dl.playstation.net", ".cdn.nintendo.net", ".d4c.nintendo.net", ".nemo.srv.nintendo.net"} {
-			if strings.HasSuffix(r.Domain, suffix) {
-				allowed = true
-			}
-		}
-		if !allowed {
-			return errors.New("规则域名不在支持的三平台下载域名范围内")
 		}
 		if r.MinBytes < 1024 || r.MinBytes > 64<<20 || len(r.ExpectedPrefix) > 1024 {
 			return errors.New("内容检查参数无效")

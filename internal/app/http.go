@@ -342,7 +342,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	dnsConnected := time.Since(a.m.lastSync) < 25*time.Second
 	a.m.mu.RUnlock()
 	dnsAddress := ""
-	if ip := net.ParseIP(strings.TrimSpace(os.Getenv("NAS_IP"))); ip != nil && ip.To4() != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() {
+	if ip := net.ParseIP(strings.TrimSpace(os.Getenv("SERVER_IP"))); ip != nil && ip.To4() != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() {
 		dnsAddress = ip.String()
 	}
 	jsonOut(w, 200, map[string]any{"app_version": Version(), "app_revision": Revision, "enabled": c.Enabled, "selections": selections, "tasks": tasks, "version": version, "applied_version": applied, "dns_connected": dnsConnected, "dns_address": dnsAddress, "feed": feed, "uptime_seconds": int(time.Since(a.started).Seconds()), "rules": c.Rules, "next_tests": nextTests, "last_tests": lastTests, "interval_seconds": c.IntervalSeconds})
@@ -415,18 +415,22 @@ func (a *API) Internal() http.Handler {
 	return mux
 }
 func Serve(ctx context.Context, addr string, h http.Handler) error {
-	s := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	listener, e := net.Listen("tcp4", addr)
+	if e != nil {
+		return e
+	}
+	return ServeListener(ctx, listener, h)
+}
+
+func ServeListener(ctx context.Context, listener net.Listener, h http.Handler) error {
+	s := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		s.Shutdown(c)
 	}()
-	listener, e := net.Listen("tcp4", addr)
-	if e != nil {
-		return e
-	}
-	e = s.Serve(listener)
+	e := s.Serve(listener)
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}
