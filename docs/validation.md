@@ -65,6 +65,15 @@ go build ./cmd/dns-assistant
 
 ## 验收边界
 
+### v0.2.0 发布验证（2026-10-28）
+
+- [标签流水线](https://github.com/leoskey/dns-assistant/actions/runs/40607962487) 的应用测试、Windows 打包与原生安装测试、双架构镜像发布与检查、GitHub Release 全部通过。发布源码为 `593826d1f70e4fa642d8862f006e31df7d816401`。
+- [公开 Release](https://github.com/leoskey/dns-assistant/releases/tag/v0.2.0) 的安装 EXE、便携 ZIP 和 `SHA256SUMS` 匿名重新下载成功，逐项校验 SHA-256；从下载的实际附件重跑安装、开始菜单参数、同版本重装、卸载与保留数据检查通过。Windows 二进制报告 v0.2.0 与上述源码 revision。
+- `ghcr.io/leoskey/dns-assistant:0.2.0` 匿名 manifest 包含 Linux amd64／arm64。使用空 Docker 凭据目录按平台摘要实际拉取并运行两种架构的 `version`，均报告相同版本与 revision；arm64 运行于模拟器，不作为 ARM 实机验收。
+- 镜像索引摘要：`sha256:e420a61925ad0e7f2da8673bc85ce3392db01837b0282ee8eeed92e122b2b86c`，与 Release 说明一致。源码、公开镜像和附件均可追溯；本地下载与测试产物保存在忽略目录。
+
+### 实机验收边界
+
 Linux/arm64 在该验证批次仅完成编译，未做 ARM NAS 运行验收；重构前的模拟运行不扩大本批次的覆盖范围。合成夹具的 SQLite integrity_check 已通过，部署验证未直接对生产数据库执行该检查。三平台真实主机下载收益、晚高峰、休眠唤醒与 NAS 宿主机重启仍待实测；服务端测速和本地测试数据均不能代表主机实时下载速度。
 
 源码、公开镜像与设备版本分别核对，不通过历史部署记录判断 `latest` 是否包含某项改动；发布检查方法见 [镜像维护](image-release.md)。[重构前验证摘要](history/pre-optimization-validation.md) 仅为历史证据。退役的预算、双地址族选优、两轮切换与备用激活不再作为当前标准。

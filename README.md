@@ -51,7 +51,7 @@ cd dns-assistant
 cp .env.example .env
 ```
 
-编辑 `.env`，将 `NAS_IP` 改为服务主机的固定局域网 IPv4，然后构建镜像并生成服务密钥：
+编辑 `.env`，将 `NAS_IP` 改为服务主机的固定局域网 IPv4，然后拉取镜像并生成服务密钥：
 
 ```sh
 docker compose pull
