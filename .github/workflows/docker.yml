@@ -45,26 +45,8 @@ jobs:
         env:
           RELEASE_REF: ${{ github.ref }}
         run: |
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict';
-          import { readFileSync, appendFileSync } from 'node:fs';
-          const version = readFileSync('internal/app/VERSION', 'utf8').trim();
-          assert.match(version, /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/);
-          assert(readFileSync('README.md', 'utf8').includes(`当前源码版本：**v${version}**`), 'README version differs');
-          const website = readFileSync('website/index.html', 'utf8');
-          assert(website.includes(`/releases/download/v${version}/dns-assistant-${version}-windows-amd64-setup.exe`), 'website installer version differs');
-          assert(website.includes(`/releases/download/v${version}/dns-assistant-${version}-windows-amd64.zip`), 'website portable version differs');
-          assert(readFileSync('.env.example', 'utf8').includes(`DNS_ASSISTANT_IMAGE=ghcr.io/leoskey/dns-assistant:${version}`), 'example image version differs');
-          for (const file of ['web/package.json', 'web/package-lock.json']) {
-            const data = JSON.parse(readFileSync(file, 'utf8'));
-            assert.equal(data.version, version, `${file} version differs`);
-            if (data.packages) assert.equal(data.packages[''].version, version);
-          }
-          if (process.env.RELEASE_REF.startsWith('refs/tags/')) {
-            assert.equal(process.env.RELEASE_REF, `refs/tags/v${version}`, 'tag does not match the application version');
-          }
-          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
-          JS
+          npm run test:version
+          npm run version:check
       - name: Test Go with race detector
         run: go test -race ./...
       - name: Vet Go
@@ -144,6 +126,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           flavor: latest=false
           tags: |
+            type=raw,value=${{ needs.test.outputs.version }},priority=1000,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
             type=sha,format=long
             type=semver,pattern={{version}}
@@ -170,9 +153,13 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
           APP_VERSION: ${{ needs.test.outputs.version }}
           SOURCE_REVISION: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           image="$IMAGE_NAME@$DIGEST"
+          if [[ "$RELEASE_REF" == refs/heads/main || "$RELEASE_REF" == refs/tags/v* ]]; then
+            docker buildx imagetools inspect "$IMAGE_NAME:$APP_VERSION" --format '{{.Manifest.Digest}}' | grep -Fx "$DIGEST"
+          fi
           manifest="$RUNNER_TEMP/image-manifest.json"
           docker buildx imagetools inspect "$image" --raw > "$manifest"
           jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | (index("amd64") != null and index("arm64") != null)' "$manifest"
@@ -181,6 +168,7 @@ jobs:
             platform_digest=$(jq -er --arg arch "${platform#linux/}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' "$manifest")
             docker run --rm --network none --platform "$platform" "$IMAGE_NAME@$platform_digest" config | jq -e '.rules | length > 0'
             docker run --rm --network none --platform "$platform" "$IMAGE_NAME@$platform_digest" version | grep -Fx "DNS Assistant v$APP_VERSION ($SOURCE_REVISION)"
+            docker image inspect "$IMAGE_NAME@$platform_digest" --format '{{index .Config.Labels "org.opencontainers.image.version"}}' | grep -Fx "$APP_VERSION"
           done
           {
             echo '### Published Docker image'

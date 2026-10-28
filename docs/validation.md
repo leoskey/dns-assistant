@@ -2,6 +2,18 @@
 
 初始验证批次：2026-10-20 的选优重构。文档整理：2026-10-28。原有表格与后端、amd64 部署结论为既有记录，不表示整理时重新运行过测试，也不声明具体设备的当前版本；增量验证按日期单独列出。规格见 [需求](requirements.md)、[验收矩阵](acceptance.md) 和 [实施计划](implementation-plan.md)。
 
+## 版本统一改动初始本机验证（2026-10-28）
+
+以下记录针对未发布的初始 v0.2.1 候选，后续发布以 v0.3.1 的实际检查为准。
+
+- `npm run version:sync` 与 `npm run version:check` 通过。`npm run test:version` 使用真实文件的临时副本验证同步幂等、根包／前端／锁文件根条目、README、两个镜像入口、官网版本与下载链接的漂移拒绝，另验证无写入检查、非法版本、缺失发布说明及 Git 标签不匹配。
+- `npm run test:web` 两项通过；`npm run build`、`npm run build:website` 通过，构建后的官网页脚和两个下载链接均为 0.2.1。未重新执行网页交互与视觉验收，本次没有调整布局或交互。
+- 在现有 Go 1.27.2 Linux 构建环境挂载当前源码，`go test -race ./...`、`go vet ./...` 通过；CLI 报告 `DNS Assistant v0.2.1 (unknown)`，API 版本回归通过。
+- Windows x64 二进制交叉编译及实际 `version` 命令通过；原有打包脚本生成安装 EXE、便携 ZIP 和校验清单，安装器产品版本（去除资源字符串填充空格）为 0.2.1，两个包的 SHA-256 与清单一致。本批次未重复安装／卸载测试。
+- Docker 标准构建在 `npm ci` 因 `registry.npmjs.org:443` 的 `EIDLETIMEOUT` 失败。本机 npm 安装和前端构建通过后，将前端产物复制至 `artifacts/version-check/web/src/internal/ui/dist`，以 `--build-context web=./artifacts/version-check/web` 复用该产物，完成原 Dockerfile 的 test 阶段竞态测试及 Linux amd64 运行镜像构建；隔离网络运行 `version`、`config` 通过，CLI 与 OCI 版本均为 0.2.1。该结果不代表标准容器内依赖下载已通过。
+- 两个 Actions 工作流通过 actionlint 1.7.12 静态检查（未运行 ShellCheck／Pyflakes）。发布后的版本标签 digest、双架构二进制及 OCI 版本核对已加入工作流，本批次尚未执行远端发布检查或 ARM 验证。
+- 本批次构建未嵌入源码 revision，证据及安装包位于忽略目录 `artifacts/version-check/`，不随源码克隆提供。源码准备完成不代表 GHCR、GitHub Release 或官网已发布此版本。
+
 ## 已执行的检查
 
 | 项目 | 结果与范围 |

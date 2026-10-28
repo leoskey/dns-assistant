@@ -25,24 +25,25 @@ main 的新运行会取消同一分支的旧运行，版本标签的发布不被
 
 ## 标签与版本
 
-程序版本保存在 `internal/app/VERSION`，使用三段数字（例如 `0.1.0`）：功能兼容修复递增补丁号，新增兼容功能递增次版本，不兼容变更递增主版本。规则表版本和数据库 schema 版本独立维护。
+程序版本唯一来源为 `internal/app/VERSION`，使用三段数字：功能兼容修复递增补丁号，新增兼容功能递增次版本，不兼容变更递增主版本。规则表版本和数据库 schema 版本独立维护。
 
-升级程序版本时，同步执行 `npm --prefix web version 新版本号 --no-git-tag-version` 更新前端包与锁文件，并更新 README、`.env.example` 镜像版本、官网链接与页脚、`docs/releases/vX.Y.Z.md`。CI 检查这些入口与 VERSION 一致，并拒绝与程序版本不一致的 Git 标签。版本在管理页“设置”、`GET /api/v1/status` 的 `app_version` 和 `dns-assistant version` 中可查；发布镜像还注入源码提交号，并将相同版本写入 OCI 的 `org.opencontainers.image.version` 标签。
+升级时只修改 VERSION，再执行 `npm run version:sync`，同步根包、前端包与锁文件、README、`.env.example` 两个镜像入口、官网链接与页脚。补充 `docs/releases/vX.Y.Z.md` 后执行 `npm run version:check`；该检查用于容器和官网 CI，拒绝版本漂移、缺失发布说明及不匹配的 Git 标签。历史发布说明保留其原始版本。Windows 文件名和安装器版本直接读取 VERSION；管理页显示 API 的 `app_version`，API 和 `dns-assistant version` 均读取 Go 内嵌的同一文件。镜像使用相同版本生成标签和 OCI `org.opencontainers.image.version`，另注入源码 revision。
 
-- main：`latest` 和 `sha-完整提交号`。latest 由通过测试的 main 发布任务更新；部署前仍须检查发布后的镜像校验结果。
+- main：`X.Y.Z`、`latest` 和 `sha-完整提交号`，其中 X.Y.Z 读取 VERSION，并设为元数据首选版本；每次更新 latest 都同时带有对应版本标签。部署前仍须检查发布后的镜像校验结果。
 - `vX.Y.Z`：`X.Y.Z`、`X.Y`、提交号和 `latest` 标签。次版本标签会指向该系列最近一次发布。
 - 手动运行：按所选分支／版本标签生成对应标签；main 与版本标签生成 latest。
 
 发布版本示例：
 
 ```sh
-git tag -a v0.1.0 -m "DNS Assistant v0.1.0"
-git push origin v0.1.0
+version=$(cat internal/app/VERSION)
+git tag -a "v$version" -m "DNS Assistant v$version"
+git push origin "v$version"
 ```
 
-版本与提交号标签用于定位发布。需要保证内容固定时使用 Actions 摘要中的完整 digest；标签可以被有权限的维护者重新发布。
+版本开发期间，同一 VERSION 的 main 构建会更新对应版本标签；正式发布后的修复须先递增版本号。版本与提交号标签用于定位发布，需要保证内容固定时使用 Actions 摘要中的完整 digest。
 
-例如，确认 `v0.1.0` 已成功发布后，设置 `DNS_ASSISTANT_IMAGE=ghcr.io/leoskey/dns-assistant:0.1.0`。版本发布须通过两种架构的配置与版本命令检查；已发布版本出现修复时递增版本号，不覆盖旧版本标签。
+确认目标版本已成功发布后，将 `.env.example` 中的版本镜像地址用于 `.env`。版本发布须通过两种架构的配置与版本命令检查；源码同步不代表该版本镜像或官网安装包已公开可用。
 
 ## GHCR 首次公开
 

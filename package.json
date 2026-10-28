@@ -2,6 +2,9 @@
   "name": "dns-assistant-workspace",
   "private": true,
   "scripts": {
+    "version:sync": "node scripts/version.cjs --write",
+    "version:check": "node scripts/version.cjs",
+    "test:version": "node --test scripts/version.test.cjs",
     "build": "npm --prefix web run build",
     "test:web": "npm --prefix web run test",
     "dev": "npm --prefix web run dev",
@@ -10,5 +13,6 @@
     "test:website": "node scripts/website-check.cjs",
     "build:fnos": "node scripts/build-fnos.cjs",
     "test:fnos": "node scripts/test-fnos.cjs"
-  }
+  },
+  "version": "0.3.1"
 }

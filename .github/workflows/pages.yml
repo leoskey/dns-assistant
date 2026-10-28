@@ -8,6 +8,8 @@ on:
       - 'web/package.json'
       - 'web/package-lock.json'
       - 'package.json'
+      - 'internal/app/VERSION'
+      - 'scripts/version.cjs'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - 'web/package.json'
       - 'web/package-lock.json'
       - 'package.json'
+      - 'internal/app/VERSION'
+      - 'scripts/version.cjs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -39,6 +43,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci --prefix web --no-audit --no-fund
+      - run: npm run version:check
       - run: npm run build:website
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
