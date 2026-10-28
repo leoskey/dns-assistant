@@ -52,7 +52,6 @@ export function ProxySpeed() {
                 ? "正在采样…"
                 : `${(speed / 1000000).toFixed(2)} MB/s`}
           </output>
-          <small className="proxy-speed-note">全部主机代理流量合计</small>
         </dd>
       </div>
     </dl>
