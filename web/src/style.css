@@ -328,19 +328,11 @@ nav a svg {
   margin-bottom: 24px;
 }
 .network-board {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 1fr);
+  display: block;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   background: var(--card);
-}
-.board-intro {
-  padding: 25px 24px;
-}
-.board-intro h2 {
-  margin-top: 14px;
-  font-size: 21px;
 }
 .status-pill {
   display: inline-flex;
@@ -370,7 +362,9 @@ nav a svg {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 24px;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 28px 24px;
 }
 .route-diagram > div {
   display: flex;
@@ -378,7 +372,7 @@ nav a svg {
   align-items: center;
   gap: 10px;
   min-width: 55px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
 }
 .route-diagram > div > svg {
@@ -388,11 +382,31 @@ nav a svg {
   stroke-width: 1.5;
 }
 .route-diagram i {
-  height: 1px;
+  position: relative;
+  align-self: flex-start;
+  margin-top: 22px;
+  height: 0.5px;
   min-width: 12px;
-  max-width: 50px;
+  max-width: 80px;
   flex: 1;
   background: var(--border);
+  overflow: hidden;
+}
+.route-diagram i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--foreground) 0 6px, transparent 6px) 0 0 / 24px 1px repeat-x;
+}
+@keyframes route-flow {
+  to {
+    background-position: 24px 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .route-diagram i::after {
+    animation: route-flow 1.2s linear infinite;
+  }
 }
 .route-diagram .route-middle {
   color: var(--foreground);
@@ -407,7 +421,6 @@ nav a svg {
   color: var(--foreground);
 }
 .board-footer {
-  grid-column: 1/-1;
   display: flex;
   gap: 28px;
   flex-wrap: wrap;
@@ -864,12 +877,13 @@ tbody tr:hover {
 }
 .backup {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 18px 10px;
   margin-top: 32px;
 }
 .backup > div {
-  flex: 1;
+  flex-basis: 100%;
 }
 .file-button {
   position: relative;
@@ -959,9 +973,6 @@ details summary {
   .workspace {
     padding-left: 26px;
     padding-right: 26px;
-  }
-  .network-board {
-    grid-template-columns: minmax(0, 1.3fr) minmax(210px, 1fr);
   }
   .route-diagram {
     padding: 18px;
@@ -1053,15 +1064,6 @@ details summary {
     gap: 12px;
     margin-bottom: 20px;
   }
-  .network-board {
-    grid-template-columns: 1fr;
-  }
-  .board-intro {
-    padding: 20px 20px 8px;
-  }
-  .board-intro h2 {
-    font-size: 20px;
-  }
   .route-diagram {
     padding: 22px 24px;
   }
@@ -1129,12 +1131,6 @@ details summary {
   .settings-section p {
     max-width: none;
   }
-  .backup {
-    flex-wrap: wrap;
-  }
-  .backup > div {
-    flex-basis: 100%;
-  }
   .event-list li {
     flex-direction: column;
     gap: 5px;
@@ -1165,9 +1161,42 @@ details summary {
       color 0.15s;
   }
 }
-.console-setup {
+.connection-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
   margin-top: 24px;
-  border: 1px solid var(--border);
+}
+.connection-modes {
+  min-width: 0;
+  padding: 24px;
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.mode-card + .mode-card {
+  margin-top: 24px;
+  padding-top: 24px;
+}
+.mode-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+}
+.mode-benefit {
+  margin: 0 0 20px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.mode-card h2 svg {
+  width: 18px;
+  height: 18px;
+}
+.console-setup {
+  min-width: 0;
+  border: 0.5px solid var(--border);
   border-radius: 10px;
   background: var(--card);
   overflow: hidden;
@@ -1191,11 +1220,15 @@ details summary {
 }
 .setup-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.3fr);
+  grid-template-columns: 1fr;
   gap: 32px;
   padding: 24px;
 }
+.connection-tabs {
+  margin: 20px 24px 0;
+}
 .setup-config,
+.setup-options,
 .setup-guide {
   min-width: 0;
 }
@@ -1205,8 +1238,13 @@ details summary {
   margin-bottom: 9px;
 }
 .dns-copy {
+  position: relative;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  height: 44px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--sidebar);
 }
 .dns-copy input {
   width: 100%;
@@ -1214,17 +1252,42 @@ details summary {
   font-size: 21px;
   font-weight: 600;
   letter-spacing: -0.025em;
-  height: 44px;
-  background: var(--sidebar);
+  height: 100%;
+  padding-right: 46px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
-.dns-copy button {
-  height: 44px;
+.dns-copy .address-select {
+  min-width: 0;
+  height: 100%;
+  padding-right: 48px;
+  border: 0;
+  box-shadow: none;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  background: transparent;
 }
-.copy-feedback {
-  min-height: 21px;
-  font-size: 11px;
-  margin: 7px 0 18px;
+.address-select > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.dns-copy .copy-address {
+  position: absolute;
+  top: 3.5px;
+  right: 3.5px;
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.dns-copy .copy-address:hover { background: var(--muted); }
+.dns-copy .copy-address:active { transform: none; }
 .setup-facts {
   margin: 0;
   font-size: 12px;
@@ -1235,7 +1298,7 @@ details summary {
   justify-content: space-between;
   gap: 12px;
   padding: 9px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .setup-facts dt {
   color: var(--muted-foreground);
@@ -1244,19 +1307,10 @@ details summary {
   margin: 0;
   text-align: right;
 }
-.secondary-guide {
-  margin-top: 15px;
-}
-.secondary-guide summary {
-  color: var(--foreground);
-}
-.secondary-guide p,
 .setup-warning {
   font-size: 12px;
-}
-.setup-warning {
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: 6px;
   background: var(--muted);
   color: var(--foreground);
@@ -1277,9 +1331,11 @@ details summary {
   font-size: 12px;
   margin-bottom: 12px;
 }
-.guide-model select {
-  min-height: 30px;
-  padding: 4px 28px 4px 9px;
+.guide-model .model-tabs {
+  margin: 0;
+}
+.model-tabs button {
+  min-width: 64px;
 }
 .guide-path {
   font-size: 12px;
@@ -1303,7 +1359,7 @@ details summary {
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 10px;
   font-size: 12px;
-  color: #52525b;
+  color: var(--muted-foreground);
   line-height: 1.8;
 }
 .guide-steps li::before {
@@ -1311,19 +1367,19 @@ details summary {
   content: counter(setup-step);
   width: 22px;
   height: 22px;
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: 50%;
   display: grid;
   place-items: center;
   color: var(--foreground);
-  font-size: 11px;
+  font-size: 12px;
 }
 .guide-source {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   margin-top: 16px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
   text-decoration: none;
 }
@@ -1352,11 +1408,6 @@ details summary {
     opacity: 1;
   }
 }
-@keyframes task-turn {
-  to {
-    transform: rotate(360deg);
-  }
-}
 @media (prefers-reduced-motion: no-preference) {
   .page-content {
     animation: page-enter 220ms ease-out both;
@@ -1366,9 +1417,6 @@ details summary {
   }
   .notice {
     animation: page-enter 180ms ease-out;
-  }
-  .task-running {
-    animation: task-turn 2s linear infinite;
   }
   button,
   .button {
@@ -1397,10 +1445,11 @@ details summary {
 }
 @media (max-width: 1100px) {
   .setup-grid {
-    grid-template-columns: minmax(210px, 1fr) minmax(0, 1.2fr);
+    grid-template-columns: 1fr;
     gap: 24px;
   }
-  .dns-copy input {
+  .dns-copy input,
+  .dns-copy .address-select {
     font-size: 18px;
   }
 }
@@ -1410,6 +1459,9 @@ details summary {
   }
 }
 @media (max-width: 760px) {
+  .connection-layout { grid-template-columns: 1fr; }
+  .connection-modes { padding: 20px 18px; }
+  .connection-tabs { margin-inline: 18px; }
   .setup-heading {
     flex-wrap: wrap;
     padding: 18px 18px 0;
@@ -1419,15 +1471,15 @@ details summary {
     padding: 20px 18px;
     gap: 22px;
   }
-  .dns-copy input {
+  .dns-copy input,
+  .dns-copy .address-select {
     font-size: 20px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .page-content,
   .guide-content,
-  .notice,
-  .task-running {
+  .notice {
     animation: none;
   }
   button,
@@ -1465,6 +1517,11 @@ details summary {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.connection-address {
+  min-width: 260px;
+  max-width: 480px;
+  overflow-wrap: anywhere;
 }
 .row-actions button {
   font-size: 12px;

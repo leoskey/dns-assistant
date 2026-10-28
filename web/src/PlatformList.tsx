@@ -1,9 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
-import * as Select from "@radix-ui/react-select";
+import { useEffect, useId, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, active, date, type Status, type Config, type Result, type Rule } from "./api";
-import { domainFromURL } from "./RuleListEditor";
+import { api, active, date, type Status, type Result, type Rule } from "./api";
+import { NodeDialog, type NodeDraft } from "./NodeDialog";
 
 export function PlatformList({ status, refresh, message }: { status: Status | null; refresh: () => Promise<void>; message: (s: string) => void }) {
   const id = useId();
@@ -20,11 +18,7 @@ export function PlatformList({ status, refresh, message }: { status: Status | nu
     return () => controller.abort();
   }, [status]);
   const [busy, setBusy] = useState("");
-  const addDialog = useRef<HTMLDialogElement>(null);
-  const urlInput = useRef<HTMLInputElement>(null);
-  const [url, setURL] = useState("");
-  const [platform, setPlatform] = useState("Xbox");
-  const [error, setError] = useState("");
+  const [draft, setDraft] = useState<NodeDraft | null>(null);
   async function probe(rule?: Rule) {
     setBusy(rule?.id || "all");
     try {
@@ -34,70 +28,11 @@ export function PlatformList({ status, refresh, message }: { status: Status | nu
     } catch (e) { message((e as Error).message); }
     finally { setBusy(""); }
   }
-  async function add(e: React.FormEvent) {
-    e.preventDefault(); setBusy("add"); setError("");
-    try {
-      const domain = domainFromURL(url);
-      if (!domain || !/^https?:\/\//i.test(url)) throw new Error("请填写完整的 HTTP(S) 下载 URL");
-      const c = await api<Config>("config");
-      if (c.rules.some(r => r.domain === domain)) throw new Error("该域名已存在");
-      const rule: Rule = { id: crypto.randomUUID(), platform, domain, url, enabled: true, candidates: [], min_bytes: 65536 };
-      await api("config", { ...c, rules: [...c.rules, rule] }, "PUT");
-      await refresh(); addDialog.current?.close(); setURL(""); message("节点已添加");
-    } catch(e) { setError((e as Error).message); }
-    finally { setBusy(""); }
-  }
   return <>
     <div className="page-title"><div><h1>节点列表</h1></div>
-      <div className="row-actions"><button className="primary" disabled={!!busy || !status?.enabled || !rules.some(r => r.enabled)} onClick={() => void probe()}>一键测速</button><button disabled={!!busy} onClick={() => { setError(""); if (selectedPlatform) setPlatform(selectedPlatform); addDialog.current?.showModal(); urlInput.current?.focus(); }}>添加节点</button></div>
+      <div className="row-actions"><button className="primary" disabled={!!busy || !status?.enabled || !rules.some(r => r.enabled)} onClick={() => void probe()}>一键测速</button><button disabled={!!busy} onClick={() => setDraft({ url: "", platform: selectedPlatform || "Xbox" })}>添加节点</button></div>
     </div>
-    <dialog
-      ref={addDialog}
-      className="dns-check-dialog"
-      aria-labelledby="add-node-title"
-      onCancel={e => { if (busy) e.preventDefault(); }}
-      onClick={e => {
-        if (!busy && e.target === e.currentTarget) {
-          const rect = e.currentTarget.getBoundingClientRect();
-          if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close();
-        }
-      }}
-    >
-      <div className="dns-check-heading">
-        <h2 id="add-node-title">添加节点</h2>
-        <button type="button" aria-label="关闭弹窗" disabled={!!busy} onClick={() => addDialog.current?.close()}><X aria-hidden="true" /></button>
-      </div>
-      <form onSubmit={add}>
-        <fieldset className="fields settings-fields" disabled={!!busy}>
-          <div className="select-field">
-            <label htmlFor={`${id}-add-platform`}>平台</label>
-            <Select.Root value={platform} onValueChange={setPlatform} disabled={!!busy}>
-              <Select.Trigger id={`${id}-add-platform`} className="select-trigger">
-                <Select.Value />
-                <Select.Icon><ChevronDown aria-hidden="true" /></Select.Icon>
-              </Select.Trigger>
-              {/* Keep the menu inside the native dialog's top layer. */}
-              <Select.Content className="select-content" position="popper" align="start" sideOffset={4} collisionPadding={8}>
-                <Select.Viewport>
-                  {platforms.slice(1).map(p => (
-                    <Select.Item className="select-item" key={p} value={p}>
-                      <Select.ItemText>{p}</Select.ItemText>
-                      <Select.ItemIndicator><Check size={15} aria-hidden="true" /></Select.ItemIndicator>
-                    </Select.Item>
-                  ))}
-                </Select.Viewport>
-              </Select.Content>
-            </Select.Root>
-          </div>
-          <label>测试下载 URL<input ref={urlInput} type="url" required value={url} onChange={e => setURL(e.target.value)} placeholder="https://下载域名/文件路径" /></label>
-          {error && <p role="alert" className="error">{error}</p>}
-          <div className="row-actions">
-            <button className="primary">{busy === "add" ? "保存中…" : "保存"}</button>
-            <button type="button" onClick={() => addDialog.current?.close()}>取消</button>
-          </div>
-        </fieldset>
-      </form>
-    </dialog>
+    {draft && <NodeDialog draft={draft} onClose={() => setDraft(null)} refresh={refresh} message={message} />}
     <div className="list-toolbar platform-tabs">
       <div className="tabs" role="tablist" aria-label="游戏平台">
         {platforms.map((value, index) => (

@@ -41,3 +41,7 @@
 每日汇总按 UTC 日与域名输出 `tests`、`failures`、`health_checks`、`health_failures`、`average_mbps`、`peak_mbps`、`bytes`、`switches`。平均速度只包含成功吞吐样本；首次启用、恢复优选及 IP 替换计入 switches。其分页快照固定行集合，行内当天指标仍可能更新。
 
 内部接口通过容器网络访问，使用 `Authorization: Bearer SERVICE_TOKEN`：DNS 核心提供 PUT /internal/policy、GET /internal/status、POST /internal/check；controller 内部监听提供 POST /internal/observe。生产 Compose 不发布这些端口。
+
+## 下载代理候选
+
+当前候选状态接口新增 service_addresses 与 proxy（enabled/address/port/active_transfers/downloaded_bytes）。GET /api/v1/connections 使用现有分页参数与管理访问控制，返回代理请求的 time/client/method/domain/address。连接记录不表示下载完成，HTTPS 只包含 CONNECT 目标，完整 HTTP URL 可能含私有参数。

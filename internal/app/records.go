@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	queryLimit  = 10000
-	resultLimit = 5000
-	eventLimit  = 500
+	queryLimit      = 10000
+	connectionLimit = 10000
+	resultLimit     = 5000
+	eventLimit      = 500
 )
 
 type PageRequest struct {
@@ -64,6 +65,32 @@ func (s *Store) AddQuery(q Query) error {
 		return err
 	}
 	return s.appendLog("queries", "payload", q.Time, string(b), queryLimit)
+}
+
+type Connection struct {
+	ID      int64     `json:"id"`
+	Time    time.Time `json:"time"`
+	Client  string    `json:"client"`
+	Method  string    `json:"method"`
+	Domain  string    `json:"domain"`
+	Address string    `json:"address"`
+}
+
+func (s *Store) AddConnection(c Connection) error {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return s.appendLog("connections", "payload", c.Time, string(b), connectionLimit)
+}
+
+func (s *Store) ConnectionPage(req PageRequest) (Page[Connection], error) {
+	return readPage(s, "connections", "payload", "", req, 7, connectionLimit, func(id int64, _, value string) (Connection, error) {
+		var c Connection
+		err := json.Unmarshal([]byte(value), &c)
+		c.ID = id
+		return c, err
+	})
 }
 
 func readPage[T any](s *Store, table, column, filter string, req PageRequest, days, limit int, decode func(int64, string, string) (T, error)) (Page[T], error) {
@@ -159,7 +186,7 @@ func (s *Store) pruneAt(now time.Time) error {
 	for _, log := range []struct {
 		table       string
 		days, limit int
-	}{{"queries", 7, queryLimit}, {"results", 30, resultLimit}, {"events", 30, eventLimit}} {
+	}{{"connections", 7, connectionLimit}, {"queries", 7, queryLimit}, {"results", 30, resultLimit}, {"events", 30, eventLimit}} {
 		if _, err = tx.Exec("DELETE FROM "+log.table+" WHERE julianday(time)<julianday(?) OR id NOT IN (SELECT id FROM "+log.table+" ORDER BY id DESC LIMIT ?)", now.AddDate(0, 0, -log.days).Format(time.RFC3339Nano), log.limit); err != nil {
 			return err
 		}

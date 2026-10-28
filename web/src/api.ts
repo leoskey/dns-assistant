@@ -60,6 +60,14 @@ export type Query = {
   time: string;
   optimized: boolean;
 };
+export type ConnectionRecord = {
+  id: number;
+  time: string;
+  client: string;
+  method: string;
+  domain: string;
+  address: string;
+};
 export type Status = {
   app_version: string;
   app_revision: string;
@@ -70,6 +78,14 @@ export type Status = {
   applied_version: number;
   dns_connected: boolean;
   dns_address?: string;
+  service_addresses: string[];
+  proxy: {
+    enabled: boolean;
+    address: string;
+    port: number;
+    active_transfers: number;
+    downloaded_bytes: number;
+  };
   feed: FeedStatus;
   last_tests: Record<string, string>;
   uptime_seconds: number;

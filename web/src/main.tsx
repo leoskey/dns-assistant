@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
-import { QueryRecords, HistoryRecords, Events } from "./Records";
+import { QueryRecords, ConnectionRecords, HistoryRecords, Events } from "./Records";
 import {
   BrowserRouter,
   NavLink,
@@ -22,10 +22,10 @@ import {
   Activity,
   ArrowUpRight,
   Check,
-  CircleCheck,
   Gamepad2,
   History as HistoryIcon,
   LayoutDashboard,
+  Link2,
   ListChecks,
   Network,
   Pause,
@@ -107,6 +107,7 @@ function App() {
                 [
                   ["/", "网络总览", LayoutDashboard],
                   ["/platforms", "节点列表", Gamepad2],
+                  ["/connections", "连接记录", Link2],
                   ["/connection", "解析历史", Network],
                   ["/history", "测速记录", HistoryIcon],
                   ["/events", "运行日志", Activity],
@@ -182,6 +183,7 @@ function App() {
 }
 function PageRoutes() {
   const location = useLocation();
+  const app = useApp();
   useEffect(() => {
     document.querySelector(".workspace")?.scrollTo(0, 0);
   }, [location.pathname]);
@@ -190,6 +192,7 @@ function PageRoutes() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/platforms" element={<Platforms />} />
+        <Route path="/connections" element={<><Title title="连接记录" /><ConnectionRecords {...app} /></>} />
         <Route path="/connection" element={<Connection />} />
         <Route path="/history" element={<History />} />
         <Route path="/events" element={<><Title title="运行日志" /><Events /></>} />
@@ -229,7 +232,7 @@ function Title({
   );
 }
 function Overview() {
-  const { status } = useApp();
+  const { status, message } = useApp();
   if (!status)
     return (
       <p className="loading" role="status">
@@ -242,32 +245,20 @@ function Overview() {
     <>
       <Title title="网络总览" />
       <section className="network-board">
-        <div className="board-intro">
-          <span className={"status-pill " + (status.enabled ? "good" : "")}>
-            {status.enabled && <CircleCheck aria-hidden="true" />}
-            {status.enabled ? "自动选优已开启" : "自动选优已暂停"}
-          </span>
-          <h2>
-            {running.length
-              ? "正在检测下载节点"
-              : chosen.length
-                ? "下载节点已就绪"
-                : status.tasks.length
-                  ? "当前使用上游解析"
-                  : "从第一次探测开始"}
-          </h2>
-        </div>
-        <div className="route-diagram" aria-label="主机经本地 DNS 选择 CDN">
+        <div
+          className="route-diagram"
+          aria-label="主机通过 DNS 优选或下载代理使用 CDN"
+        >
           <div>
             <Gamepad2 aria-hidden="true" />
             游戏主机
           </div>
-          <i />
+          <i aria-hidden="true" />
           <div className="route-middle">
             <Mark />
-            家庭 DNS
+            本地服务
           </div>
-          <i />
+          <i aria-hidden="true" />
           <div>
             <Server aria-hidden="true" />
             下载节点
@@ -279,10 +270,7 @@ function Overview() {
             {chosen.length} 个域名已有优选节点
           </span>
           <span>
-            <Activity
-              className={running.length ? "task-running" : undefined}
-              aria-hidden="true"
-            />
+            <Activity aria-hidden="true" />
             {running.length} 项探测进行中
           </span>
           <span>
@@ -294,8 +282,9 @@ function Overview() {
         </div>
       </section>
       <ConsoleSetup
-        address={status.dns_address}
-        connected={status.dns_connected}
+        addresses={status.service_addresses}
+        proxyPort={status.proxy.port}
+        message={message}
       />
       <div className="section-heading">
         <h2>平台下载节点</h2>
@@ -404,7 +393,7 @@ function Connection() {
         {check && (
           <div className="check-result">
             <strong>
-              {check.rcode} · {check.duration_ms} ms
+              {check.rcode}，{check.duration_ms} ms
             </strong>
             {check.answers.length ? (
               check.answers.map((v, i) => <pre key={i}>{v}</pre>)
@@ -612,7 +601,7 @@ function Settings() {
                 !status.feed.success.startsWith("0001")
                   ? date(status.feed.success)
                   : "尚未同步"}{" "}
-                · 版本：{status?.feed?.version || config.rule_version}
+                ，版本：{status?.feed?.version || config.rule_version}
               </p>
               {status?.feed?.error && (
                 <p className="error" role="alert">

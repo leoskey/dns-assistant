@@ -31,7 +31,7 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, e
 	}
-	if schema > 3 {
+	if schema > 4 {
 		db.Close()
 		return nil, fmt.Errorf("数据库版本 %d 高于本程序支持版本", schema)
 	}
@@ -41,12 +41,14 @@ func OpenStore(dir string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS results(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,payload TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,message TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS queries(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,payload TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS connections(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT NOT NULL,payload TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS connections_time ON connections(time);
  CREATE INDEX IF NOT EXISTS results_time ON results(time);
  CREATE INDEX IF NOT EXISTS events_time ON events(time);
  CREATE INDEX IF NOT EXISTS queries_time ON queries(time);
  CREATE TABLE IF NOT EXISTS daily(day TEXT NOT NULL,domain TEXT NOT NULL,tests INTEGER NOT NULL DEFAULT 0,failures INTEGER NOT NULL DEFAULT 0,health_checks INTEGER NOT NULL DEFAULT 0,health_failures INTEGER NOT NULL DEFAULT 0,speed_sum REAL NOT NULL DEFAULT 0,speed_count INTEGER NOT NULL DEFAULT 0,peak_mbps REAL NOT NULL DEFAULT 0,bytes INTEGER NOT NULL DEFAULT 0,switches INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,domain));
  DROP TABLE IF EXISTS budgets;
- PRAGMA user_version=3;`)
+ PRAGMA user_version=4;`)
 	if e != nil {
 		db.Close()
 		return nil, e

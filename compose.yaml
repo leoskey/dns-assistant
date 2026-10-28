@@ -40,6 +40,7 @@ services:
       ADMIN_HOSTS: ${ADMIN_HOSTS:-}
     ports:
       - "${SERVER_IP:?请先设置服务主机固定局域网IP}:8080:8080"
+      - "${SERVER_IP:?请先设置服务主机固定局域网IP}:8082:8082"
     volumes:
       - controller-state:/data
     read_only: true

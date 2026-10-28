@@ -53,3 +53,7 @@ powershell -NoProfile -File scripts/package-windows.ps1 -BinaryPath artifacts/wi
 `test-windows-package.ps1` 在临时目录检查校验和、解包、安装、开始菜单参数、同版本重装、卸载与数据保留；若用户环境已安装 DNS Assistant 或存在同名开始菜单目录，主动停止以免覆盖。Go 生命周期测试另行验证 DNS、管理、正常停止与重启。
 
 GitHub Actions 在 PR 验证 Windows 构建和生命周期测试；PR／main／标签／手动运行均上传安装程序、ZIP 与校验文件为 Actions artifacts。版本标签在测试、Windows 包和 Docker 双架构验证通过后自动发布 GitHub Release，上传安装程序、ZIP、SHA-256 清单和对应 `docs/releases/vX.Y.Z.md` 说明。工作流使用预装 Inno Setup 的 [Windows 2025 runner](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)。本地证据和未验证项见仓库的 `docs/validation.md`。
+
+## 下载代理候选
+
+当前本地候选的单机模式随 DNS 与管理服务一起启动 TCP 8082 代理；退出时关闭代理。升级需备份完整数据目录，schema 4 回退旧程序须恢复匹配备份。官方安装包仍按公开 Release 核对，不能将本地候选当成已发布安装包。

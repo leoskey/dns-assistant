@@ -27,12 +27,12 @@ func TestStandaloneLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Close()
-	dnsAddr, webAddr := freeAddress(t), freeAddress(t)
+	dnsAddr, webAddr, proxyAddr := freeAddress(t), freeAddress(t), freeAddress(t)
 	client := &http.Client{Timeout: time.Second}
 	for attempt := range 2 {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
-		go func() { done <- runStandalone(ctx, dir, dnsAddr, webAddr) }()
+		go func() { done <- runStandalone(ctx, dir, dnsAddr, webAddr, proxyAddr) }()
 		t.Cleanup(cancel)
 		deadline := time.Now().Add(10 * time.Second)
 		for {
@@ -75,6 +75,14 @@ func TestStandaloneLifecycle(t *testing.T) {
 				t.Fatalf("%s local AAAA response: %v %v", transport, answer, err)
 			}
 		}
+		proxyResponse, proxyErr := client.Get("http://" + proxyAddr + "/")
+		if proxyErr != nil {
+			t.Fatal(proxyErr)
+		}
+		proxyResponse.Body.Close()
+		if proxyResponse.StatusCode != http.StatusBadRequest {
+			t.Fatal("proxy listener did not reject a non-proxy request")
+		}
 		cancel()
 		select {
 		case err := <-done:
@@ -93,7 +101,7 @@ func TestStandalonePortConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	if err := runStandalone(context.Background(), t.TempDir(), "127.0.0.1:0", listener.Addr().String()); err == nil {
+	if err := runStandalone(context.Background(), t.TempDir(), "127.0.0.1:0", listener.Addr().String(), freeAddress(t)); err == nil {
 		t.Fatal("occupied management port was accepted")
 	}
 }
@@ -101,15 +109,15 @@ func TestStandalonePortConflict(t *testing.T) {
 func freeAddress(t *testing.T) string {
 	t.Helper()
 	for range 100 {
-		packet, err := net.ListenPacket("udp4", "127.0.0.1:0")
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		addr := packet.LocalAddr().String()
-		listener, err := net.Listen("tcp4", addr)
-		packet.Close()
+		addr := listener.Addr().String()
+		packet, err := net.ListenPacket("udp4", addr)
+		listener.Close()
 		if err == nil {
-			listener.Close()
+			packet.Close()
 			return addr
 		}
 	}

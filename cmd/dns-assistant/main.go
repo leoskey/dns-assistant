@@ -84,7 +84,7 @@ func main() {
 			}
 			os.Setenv("SERVER_IP", *ip)
 		}
-		if e := runStandalone(ctx, *dir, *addr, env("WEB_ADDR", ":8080")); e != nil {
+		if e := runStandalone(ctx, *dir, *addr, env("WEB_ADDR", ":8080"), ":8082"); e != nil {
 			slog.Error("单机服务退出", "error", e)
 			os.Exit(1)
 		}
@@ -145,6 +145,7 @@ func main() {
 		go func() { m.Run(ctx); close(managerDone) }()
 		go func() { errs <- app.Serve(ctx, env("WEB_ADDR", ":8080"), api.Handler()) }()
 		go func() { errs <- app.Serve(ctx, env("INTERNAL_ADDR", ":8081"), api.Internal()) }()
+		go func() { errs <- app.ServeDownloadProxy(ctx, ":8082", m.DownloadProxy) }()
 		slog.Info("管理服务已启动", "address", env("WEB_ADDR", ":8080"))
 		select {
 		case <-ctx.Done():

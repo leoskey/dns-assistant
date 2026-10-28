@@ -99,3 +99,7 @@ Docker Hub 的 `registry-mirrors` 不会重定向 GHCR，因此本方案按项�
 保留现有项目名称、环境文件和两个数据卷。镜像部署修改目标版本后执行 pull 与 up；源码部署切换源码后，带上两个 `-f` 参数执行 build 与 up。不使用 `down -v`。回滚到固定镜像或源码版本时保持相应部署方式；数据库格式发生变化时，按迁移说明同时恢复匹配的数据卷快照。
 
 依据：[GitHub 发布镜像文档](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)、[GHCR 权限与公开说明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)、[Docker 多架构构建](https://docs.docker.com/build/ci/github-actions/multi-platform/)。
+
+## 下载代理候选
+
+0.4.0 为本地候选，当前未公开发布。不得将本地验证等同 GHCR/Release 已更新；本地镜像导入同样核对版本和摘要，并在 schema 4 迁移前保存完整冷备份。

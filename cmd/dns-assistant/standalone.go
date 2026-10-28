@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func runStandalone(parent context.Context, dir, dnsAddr, webAddr string) error {
+func runStandalone(parent context.Context, dir, dnsAddr, webAddr, proxyAddr string) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	store, err := app.OpenStore(filepath.Join(dir, "controller"))
@@ -49,14 +49,15 @@ func runStandalone(parent context.Context, dir, dnsAddr, webAddr string) error {
 		d.Close(closeCtx)
 	}()
 	api := app.NewAPI(m)
-	errs := make(chan error, 3)
+	errs := make(chan error, 4)
 	managerDone := make(chan struct{})
 	go func() { m.Run(ctx); close(managerDone) }()
 	go func() { errs <- app.ServeListener(ctx, control, d.Handler()) }()
 	go func() { errs <- app.ServeListener(ctx, internal, api.Internal()) }()
 	go func() { errs <- app.ServeListener(ctx, web, api.Handler()) }()
+	go func() { errs <- app.ServeDownloadProxy(ctx, proxyAddr, m.DownloadProxy) }()
 	slog.Info("单机服务已启动，按 Ctrl+C 停止", "dns", dnsAddr, "web", web.Addr(), "data", dir)
-	remaining := 3
+	remaining := 4
 	select {
 	case <-ctx.Done():
 	case err = <-errs:
