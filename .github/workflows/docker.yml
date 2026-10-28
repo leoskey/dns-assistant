@@ -95,7 +95,7 @@ jobs:
 
   publish:
     name: Publish amd64 and arm64
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -130,9 +130,6 @@ jobs:
           tags: |
             type=raw,value=${{ needs.test.outputs.version }},priority=1000,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,format=long
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
           labels: |
             org.opencontainers.image.version=${{ needs.test.outputs.version }}
       - name: Build and publish multi-platform image

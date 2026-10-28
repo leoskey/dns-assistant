@@ -29,9 +29,9 @@ main 的新运行会取消同一分支的旧运行，版本标签的发布不被
 
 升级时只修改 VERSION，再执行 `npm run version:sync`，同步根包、前端包与锁文件、README、`.env.example` 两个镜像入口、官网链接与页脚。补充 `docs/releases/vX.Y.Z.md` 后执行 `npm run version:check`；该检查用于容器和官网 CI，拒绝版本漂移、缺失发布说明及不匹配的 Git 标签。历史发布说明保留其原始版本。Windows 文件名和安装器版本直接读取 VERSION；管理页显示 API 的 `app_version`，API 和 `dns-assistant version` 均读取 Go 内嵌的同一文件。镜像使用相同版本生成标签和 OCI `org.opencontainers.image.version`，另注入源码 revision。
 
-- main：`X.Y.Z`、`latest` 和 `sha-完整提交号`，其中 X.Y.Z 读取 VERSION，并设为元数据首选版本；每次更新 latest 都同时带有对应版本标签。部署前仍须检查发布后的镜像校验结果。
-- `vX.Y.Z`：`X.Y.Z`、`X.Y`、提交号和 `latest` 标签。次版本标签会指向该系列最近一次发布。
-- 手动运行：按所选分支／版本标签生成对应标签；main 与版本标签生成 latest。
+- 镜像仅允许 `latest` 和完整版本号 `X.Y.Z` 两类标签；版本号读取 VERSION，并设为元数据首选版本。不生成提交号或 `X.Y` 标签。
+- main 与 `vX.Y.Z`：均生成 `X.Y.Z` 和 `latest`；每次更新 latest 都同时带有对应版本标签。部署前仍须检查发布后的镜像校验结果。
+- 手动运行：仅选择 main 或版本标签时发布上述两个标签，其他分支不发布镜像。
 
 发布版本示例：
 
@@ -41,7 +41,7 @@ git tag -a "v$version" -m "DNS Assistant v$version"
 git push origin "v$version"
 ```
 
-版本开发期间，同一 VERSION 的 main 构建会更新对应版本标签；正式发布后的修复须先递增版本号。版本与提交号标签用于定位发布，需要保证内容固定时使用 Actions 摘要中的完整 digest。
+版本开发期间，同一 VERSION 的 main 构建会更新对应版本标签；正式发布后的修复须先递增版本号。源码提交号保留在 OCI revision 中，需要保证内容固定时使用 Actions 摘要中的完整 digest。此规则不自动删除 GHCR 已有的历史标签。
 
 确认目标版本已成功发布后，将 `.env.example` 中的版本镜像地址用于 `.env`。版本发布须通过两种架构的配置与版本命令检查；源码同步不代表该版本镜像或官网安装包已公开可用。
 

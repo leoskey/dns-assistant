@@ -12,6 +12,26 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
+test("image publishing only declares latest and the complete application version", () => {
+  const workflow = readFileSync(
+    path.resolve(__dirname, "../.github/workflows/docker.yml"),
+    "utf8",
+  );
+  const tags = workflow.match(/          tags: \|\r?\n([\s\S]*?)          labels:/)[1];
+  assert.deepEqual(
+    tags.trim().split(/\r?\n/).map((line) => line.trim().split(",").slice(0, 2).join(",")),
+    [
+      "type=raw,value=${{ needs.test.outputs.version }}",
+      "type=raw,value=latest",
+    ],
+  );
+  assert.match(workflow, /flavor: latest=false/);
+  assert.match(
+    workflow,
+    /name: Publish amd64 and arm64\r?\n    if: github.event_name != 'pull_request' && \(github.ref == 'refs\/heads\/main' \|\| startsWith\(github.ref, 'refs\/tags\/v'\)\)/,
+  );
+});
+
 test("version synchronization and release checks use the real project files", (t) => {
   const root = path.resolve(__dirname, "..");
   const fixture = mkdtempSync(path.join(tmpdir(), "dns-assistant-version-"));
