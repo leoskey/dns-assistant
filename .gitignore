@@ -19,3 +19,4 @@ data/
 *.db-wal
 artifacts/
 *.fpk
+docs/host-deployment.md

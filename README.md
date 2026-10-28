@@ -4,13 +4,18 @@
 
 [产品官网](https://leoskey.github.io/dns-assistant/)
 
-当前源码版本：**v0.1.0**。管理页面“设置”中可查看正在运行的版本，命令行使用 `dns-assistant version`。
+当前源码版本：**v0.4.0**。管理页面“设置”中可查看正在运行的版本，命令行使用 `dns-assistant version`。
 
 支持 Docker 部署与 Windows x64 单机安装的家庭游戏主机 DNS 优选工具。针对配置的 Xbox、PlayStation 和 Nintendo Switch 域名，在服务主机上测试候选公网 IPv4 的持续下载速度，并将合格节点用于后续 DNS 应答。
 
 提供中文管理页面，局域网直接访问，无需登录，也不需要安装 AdGuard Home。项目优化的是已配置域名的节点选择；实际游戏下载效果取决于规则、样本和家庭网络。
 
+当前候选加入下载代理、连接记录与双模式接入界面，尚未公开发布。下载代理仅向配置的局域网开放 TCP 8082；升级前冷备份完整数据卷，schema 4 回退到旧程序须恢复匹配备份。详见 [下载代理](docs/download-proxy.md)。
+
 ## 主要功能
+
+- **支持自定义下载域名**：规则按 Xbox、PlayStation 或 Switch 分类，测试地址不限制平台域名后缀；继续校验公网 IPv4、HTTP(S) 标准端口及内容。
+- **代理实时下载速度**：首页每秒采样经过代理的全部主机下行流量合计，显示 MB/s；后台探测与 DNS 直连流量不计入。
 
 - **按域名自动选优**：候选来自规则配置、上游 DNS 的 A 记录和当前节点；各域名独立测试，保持原 Host／SNI 并校验证书。
 - **按下载速度排名**：完整测速按时间窗口执行，不限速、不设字节上限或每日流量预算；速度接近时保留当前节点，减少频繁切换。
@@ -20,8 +25,6 @@
 - **独立 DNS 服务**：提供 IPv4 UDP／TCP DNS 和普通解析缓存。管理容器停止后，DNS 容器继续使用有效策略，策略过期后恢复默认解析。
 
 完整测速会占用带宽并产生实际下载流量。默认调度为低频执行，可在设置中调整或暂停自动选优。
-
-项目面向通用服务器，支持 Docker 和 Windows 单机部署，不限定硬件品牌或设备类别。
 
 ## 工作方式
 
@@ -43,10 +46,9 @@
 - 服务主机的 TCP／UDP 53 和 TCP 8080 可用，主机可以访问这些端口。
 - 数据卷位于服务主机本地文件系统，部署机器能够下载构建所需的基础镜像和依赖。
 
-下面使用源码构建，部署的是当前检出的代码。预构建镜像对应其发布提交，使用前应核对版本；源码更新不代表已经进入 GHCR 的 `latest`。镜像部署与版本核对见 [镜像发布维护](docs/image-release.md)。
+下面使用预构建镜像，`.env.example` 固定本次发布版本；无需在部署机器安装构建工具。源码构建与版本核对见 [镜像发布维护](docs/image-release.md)。
 
 ### 安装
-
 
 ```sh
 git clone https://github.com/leoskey/dns-assistant.git
@@ -54,26 +56,24 @@ cd dns-assistant
 cp .env.example .env
 ```
 
-编辑 `.env`，将 `SERVER_IP` 改为服务主机的固定局域网 IPv4，然后构建镜像并生成服务密钥：
+编辑 `.env`，将 `SERVER_IP` 改为服务主机的固定局域网 IPv4，然后拉取镜像并生成服务密钥：
 
 ```sh
-docker compose -f compose.yaml -f compose.build.yaml build
-docker compose -f compose.yaml -f compose.build.yaml run --rm --no-deps controller keygen
+docker compose pull
+docker compose run --rm --no-deps controller keygen
 ```
 
 将生成的密钥填入 `.env` 的 `SERVICE_TOKEN`，替换示例占位值。该密钥用于两个服务之间的通信。随后检查并启动：
 
 ```sh
-docker compose -f compose.yaml -f compose.build.yaml config --quiet
-docker compose -f compose.yaml -f compose.build.yaml up -d --wait
-docker compose -f compose.yaml -f compose.build.yaml ps
+docker compose config --quiet
+docker compose up -d --wait
+docker compose ps
 ```
 
-两项服务应显示为 `healthy`。在浏览器访问 `http://SERVER_IP:8080`。源码部署后续操作继续带上这两个 `-f` 参数，避免切回其他镜像。
+两项服务应显示为 `healthy`。在浏览器访问 `http://SERVER_IP:8080`。Windows 用户使用 [安装程序或便携版](https://github.com/leoskey/dns-assistant/releases/tag/v0.4.0)。
 
 管理页面免登录，只应在受信任局域网开放。使用服务主机主机名或反向代理时，将允许的主机名加入 `.env` 的 `ADMIN_HOSTS`；不要将管理入口直接暴露到公网。
-
-服务主机地址统一使用 `SERVER_IP`。升级旧部署时，将 `.env` 中原有的地址配置项改名为 `SERVER_IP`，保留原值及 `SERVICE_TOKEN`，并同步更新自定义 Compose 的变量引用；数据卷无需迁移。
 
 ### 连接游戏主机
 
@@ -88,12 +88,11 @@ docker compose -f compose.yaml -f compose.build.yaml ps
 ## 适用范围与限制
 
 - **规则只作用于精确域名。** 默认内置 Xbox 全球／国内域名、PlayStation 下载与测速样本、Nintendo 连接测试样本；内置不代表已在每个家庭网络中验证，也不代表覆盖平台全部下载域名。
-- **支持自定义下载域名。** 添加及导入规则不限制平台域名后缀，仍校验公网 IPv4、标准 HTTP(S) 端口及重定向范围。
 - **样本必须适用于当前域名。** 节点需返回有效内容且样本足够覆盖测速窗口。样本失效、需要设备认证或签名过期时，应更换可用样本，不能强行视为测速成功。
 - **连接测试与游戏下载分别判断。** Switch 的 `ctest` 等连接测试成绩不能证明实际游戏下载更快；实际下载域名需要对应的有效内容样本。
 - **服务主机测速不是主机实时速度。** DNS 记录只能说明收到了哪些查询，不能显示游戏下载进度、HTTPS 内容或实际下载带宽。经路由器转发时，查询来源可能只显示路由器。
 - **仅优选公网 IPv4。** 启用规则的域名 AAAA 返回 NODATA，其他域名 AAAA 保持上游语义。HTTPS／SVCB 地址提示可能影响客户端选址；要求端到端 DNSSEC 的 A 查询保留原始上游应答。
-- **用途为下载节点选择。** 不提供 Xbox 国际地址转国内地址的 HTTP 跳转、下载代理或对战网络加速。
+- **用途为下载节点选择与手动代理转发。** 支持 HTTP 下载及 HTTPS CONNECT 隧道，不提供 Xbox 国际地址转国内地址的 HTTP 跳转、透明接管或对战网络加速。
 
 既有验证覆盖自动化、Linux/amd64 容器及 amd64 部署运行；Linux/arm64 在选优重构后仅完成编译检查。三平台真实主机下载收益、ARM 服务主机运行和宿主机重启仍待实测。验证结论不表示任一设备当前已升级，范围与复现方法见 [验证记录](docs/validation.md)。
 
@@ -101,11 +100,11 @@ docker compose -f compose.yaml -f compose.build.yaml ps
 
 在“设置”中维护平台、测试下载地址和启用状态，候选 IP 与内容校验位于高级选项。订阅更新会整体替换规则，包括本地手工修改；表格式、同步与关闭方式见 [规则订阅](docs/rule-feed.md)。
 
-升级前保留 `.env` 和两个完整数据卷；界面导出的配置不包含历史、每日汇总及调度时间，不能代替卷备份。获取目标版本源码后重新构建并启动：
+升级前保留 `.env` 和两个完整数据卷；界面导出的配置不包含历史、每日汇总及调度时间，不能代替卷备份。将 `.env` 中的 `DNS_ASSISTANT_IMAGE` 更新为目标发布版本后拉取并启动：
 
 ```sh
-docker compose -f compose.yaml -f compose.build.yaml build
-docker compose -f compose.yaml -f compose.build.yaml up -d --wait
+docker compose pull
+docker compose up -d --wait
 ```
 
 `docker compose down` 默认保留数据卷；`down -v` 会删除数据。回滚到旧数据库格式的程序时，需要同时恢复匹配的数据卷快照。具体升级、回滚和日志检查方法见 [部署说明](docs/deployment.md)。

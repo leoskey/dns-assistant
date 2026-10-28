@@ -60,6 +60,19 @@ export type Query = {
   time: string;
   optimized: boolean;
 };
+export type ConnectionRecord = {
+  id: number;
+  time: string;
+  client: string;
+  method: string;
+  domain: string;
+  address: string;
+};
+export type ProxyTraffic = {
+  downloaded_bytes: number;
+  uptime_seconds: number;
+  started_at: string;
+};
 export type Status = {
   app_version: string;
   app_revision: string;
@@ -70,6 +83,14 @@ export type Status = {
   applied_version: number;
   dns_connected: boolean;
   dns_address?: string;
+  service_addresses: string[];
+  proxy: {
+    enabled: boolean;
+    address: string;
+    port: number;
+    active_transfers: number;
+    downloaded_bytes: number;
+  };
   feed: FeedStatus;
   last_tests: Record<string, string>;
   uptime_seconds: number;
@@ -113,6 +134,17 @@ export function bytes(n: number) {
   return n >= 1073741824
     ? (n / 1073741824).toFixed(1) + " GiB"
     : (n / 1048576).toFixed(1) + " MiB";
+}
+export function downloadSpeed(previous: ProxyTraffic, current: ProxyTraffic) {
+  const elapsed = current.uptime_seconds - previous.uptime_seconds;
+  const received = current.downloaded_bytes - previous.downloaded_bytes;
+  if (
+    current.started_at !== previous.started_at ||
+    elapsed <= 0 ||
+    received < 0
+  )
+    return null;
+  return received / elapsed;
 }
 export function date(s: string) {
   return s

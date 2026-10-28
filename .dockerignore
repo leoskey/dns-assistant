@@ -12,4 +12,5 @@ data
 *.db
 *.db-shm
 *.db-wal
+docs/host-deployment.md
 artifacts

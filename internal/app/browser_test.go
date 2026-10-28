@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +59,31 @@ func TestBrowserFixture(t *testing.T) {
 		streamSample(w, r)
 	})
 	m.resolve = func(context.Context, string, Config) []string { return []string{"1.1.1.1"} }
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stream-speed" {
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			chunk := make([]byte, 64*1024)
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+					if _, err := w.Write(chunk); err != nil {
+						return
+					}
+					w.(http.Flusher).Flush()
+				}
+			}
+		}
+		w.Write([]byte("proxy-browser-fixture"))
+	}))
+	defer origin.Close()
+	m.DownloadProxy.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, strings.TrimPrefix(origin.URL, "http://"))
+	}
+	proxy := httptest.NewServer(m.DownloadProxy)
+	defer proxy.Close()
 	m.feedClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if strings.Contains(r.URL.Path, "bad") {
 			return feedResponse(`{"version":"bad","rules":[]}`), nil
@@ -106,10 +132,11 @@ func TestBrowserFixture(t *testing.T) {
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
+	fmt.Println("BROWSER_PROXY_URL=" + proxy.URL)
 	fmt.Println("BROWSER_FIXTURE_URL=" + server.URL)
 	select {
 	case <-stop:
-	case <-time.After(150 * time.Second):
+	case <-time.After(180 * time.Second):
 		t.Error("browser did not stop fixture")
 	}
 	cancel()

@@ -6,6 +6,8 @@
 
 ## 安装前
 
+接入地址统一使用 `SERVER_IP`。从 v0.3.0 之前的版本升级时，在原 `.env` 中设置 `SERVER_IP=服务主机固定局域网IPv4`，再更改镜像版本并执行配置校验；旧地址变量不再识别，缺少新变量会阻止 Compose 启动。服务密钥与两个数据卷保持原值，无需迁移数据库。Windows 使用 `-ip` 参数的启动方式不变；自行设置过地址环境变量的用户也需要改用 `SERVER_IP`。
+
 无需 Docker 的 Windows x64 安装程序和便携版见 [Windows 单机安装](windows.md)。两种方式独立选择，不要在同一 IP 上同时占用 53 和 8080。
 
 1. 用 `docker version` 与 `docker compose version` 确认 daemon 和 Compose v2。
@@ -17,11 +19,11 @@
 7. 按选定部署方式执行 Compose 配置校验并启动，两个服务均应显示 healthy。
 8. Compose 对外仅发布 IPv4 端口，SERVER_IP 必须填写局域网 IPv4。目标下载域名 AAAA 返回 NODATA，普通域名 AAAA 仍可经 IPv4 DNS 查询。DNS 核心库可能在容器内创建双栈通配套接字，不能依据日志中的 `[::]` 判断宿主机发布了 IPv6；不要额外增加 IPv6 端口发布或来源网段。
 
-单独使用 `compose.yaml` 时，默认从 `ghcr.io/leoskey/dns-assistant:latest` 拉取发布镜像，Docker 按 manifest 匹配 amd64／arm64；可用 `DNS_ASSISTANT_IMAGE` 固定已发布版本或摘要。部署前核对目标发布的版本、提交与架构，源码更新不代表镜像已更新。[README](../README.md) 的快速部署采用源码构建，使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
+`.env.example` 的 `DNS_ASSISTANT_IMAGE` 指定对应版本标签；省略该变量时，`compose.yaml` 才回退至 `latest`。Docker 按 manifest 匹配 amd64／arm64，也可固定完整摘要。[README](../README.md) 的快速部署使用预构建镜像。需要构建检出的源码时使用 `-f compose.yaml -f compose.build.yaml`，之后的校验、启动与维护命令保持同一组覆盖文件。
 
 中国大陆访问 GHCR 缓慢时，可按 [镜像拉取与升级](image-release.md#镜像拉取与升级) 检查缓存入口的可达性与摘要，再选择拉取路径。
 
-更新时保留原项目名称、环境文件、服务密钥和两个数据卷。镜像部署执行 `docker compose pull`、`docker compose up -d --wait`；源码部署按 README 使用两个 `-f` 参数重新 build 与 up。自定义 Compose 使用 `env_file` 时保留其引用；由离线镜像转为网络拉取时，移除阻止拉取的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
+更新时保留原项目名称、环境文件、服务密钥和两个数据卷。镜像部署执行 `docker compose pull`、`docker compose up -d --wait`；源码部署按上述说明使用两个 `-f` 参数重新 build 与 up。自定义 Compose 使用 `env_file` 时保留其引用；由离线镜像转为网络拉取时，移除阻止拉取的 `pull_policy: never`。发布与匿名拉取检查见 [镜像发布维护](image-release.md)。
 
 ## 接入
 
@@ -33,7 +35,7 @@
 
 查询与测试记录自动按时间及数量清理，无需手动清空。查询最多保留 7 天／10,000 条，测速结果 30 天／5,000 条，运行事件 30 天／500 条；启动及每小时检查时间范围。SQLite 会复用已释放页面，文件不必立即缩小。两个容器的运行日志各自轮换保留最多 3 个 10 MiB 文件。Docker 的本地存活检查不会下载 CDN 文件或更新优选 IP。记录接口的分页与保留信息见 [管理 API](api.md)。
 
-本版 controller 将数据库 schema 1/2 自动升级为 schema 3，原配置、合法 IPv4 策略与历史保留，移除旧预算表及 IPv6 候选。旧配置中的 IPv6 上游会移除，没有 IPv4 上游时使用内置 IPv4 上游；切换优势与冷却迁移到当前默认 5%／5 分钟。首次升级前保留 controller 数据卷快照；若回退到仅支持 schema 1/2 的旧镜像，需要同时恢复升级前的数据卷。配置 JSON 导出不包含历史、汇总及调度时间，不能代替完整数据卷快照。
+当前 controller 将 schema 1/2/3 升级为 schema 4，新增独立连接记录表；原配置、合法 IPv4 策略与历史保留，旧预算表及 IPv6 候选按迁移规则移除。旧配置中的 IPv6 上游会移除，没有 IPv4 上游时使用内置 IPv4 上游；切换优势与冷却迁移到当前默认 5%／5 分钟。首次升级前保留 controller 数据卷快照；若回退到仅支持 schema 1/2 的旧镜像，需要同时恢复升级前的数据卷。配置 JSON 导出不包含历史、汇总及调度时间，不能代替完整数据卷快照。
 
 ## 常见情况
 
@@ -53,3 +55,7 @@
 ## 实机验收
 
 按 [验收矩阵](acceptance.md) 和 [空白模板](field-validation-template.md) 检查目标环境、IPv4 接入、重启恢复及真实下载对比。填写后的设备信息、地址、查询记录、日志与截图保存在仓库外；仓库仅保留脱敏的验证范围、结论和未验证项。Docker Desktop 通过不能代替目标设备验收。
+
+## 下载代理候选
+
+当前候选新增 controller 的 TCP 8082 端口发布；局域网来源继续受 allowed_cidrs 限制。首次启动将 schema 3 升级为 4 并创建连接记录表，配置和原历史保留。升级前停止两个服务，冷备份完整数据卷及环境文件；回退到 v0.3.1 时须同时恢复原卷备份。不要只保存配置导出。

@@ -490,24 +490,43 @@ func testAPI(t *testing.T) (*API, http.Handler) {
 	return a, a.Handler()
 }
 
+func TestConfigRejectsServerAddressAsUpstream(t *testing.T) {
+	t.Setenv("SERVER_IP", "192.168.2.100")
+	config := DefaultConfig()
+	config.Upstreams = []string{"192.168.2.100:53"}
+	if err := config.Validate(); err == nil {
+		t.Fatal("server address accepted as its own upstream")
+	}
+	config.Upstreams = []string{"223.5.5.5:53"}
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 	_, h := testAPI(t)
+	t.Setenv("SERVER_IP", "")
 	for _, tc := range []struct{ configured, want string }{
 		{"192.168.50.10", "192.168.50.10"},
 		{" 192.168.50.10 ", "192.168.50.10"},
 		{"fd12::100", ""},
-		{"", ""}, {"localhost", ""}, {"192.168.50.10:8080", ""},
+		{"localhost", ""}, {"192.168.50.10:8080", ""},
 		{"127.0.0.1", ""}, {"::1", ""}, {"0.0.0.0", ""},
 		{"169.254.1.1", ""}, {"224.0.0.1", ""}, {"2606:4700:4700::1111", ""},
+		{"8.8.8.8", ""},
 	} {
 		t.Run(tc.configured, func(t *testing.T) {
 			t.Setenv("SERVER_IP", tc.configured)
 			r := call(h, "GET", "/api/v1/status", "", "", "")
 			var status struct {
-				DNSAddress string `json:"dns_address"`
+				DNSAddress string   `json:"dns_address"`
+				Addresses  []string `json:"service_addresses"`
 			}
 			if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &status) != nil || status.DNSAddress != tc.want {
 				t.Fatalf("advertised address mismatch: %s", r.Body.String())
+			}
+			if status.Addresses == nil || tc.want == "" && len(status.Addresses) != 0 || tc.want != "" && (len(status.Addresses) != 1 || status.Addresses[0] != tc.want) {
+				t.Fatalf("address list mismatch: %s", r.Body.String())
 			}
 		})
 	}

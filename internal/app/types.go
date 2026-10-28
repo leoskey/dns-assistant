@@ -111,7 +111,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("上游须为 IP:端口 或 https:// 地址: %s", s)
 		}
 		ip, e := netip.ParseAddr(host)
-		if e != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsLoopback() || host == os.Getenv("SERVER_IP") {
+		if e != nil || !ip.Is4() || ip.IsUnspecified() || ip.IsLoopback() || host == deploymentIP() {
 			return errors.New("上游必须是明确的非环回 IP，不能指向服务自身")
 		}
 		if port != "53" && port != "5353" {

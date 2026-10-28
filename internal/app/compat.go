@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Only persisted settings and format-1 backups accept the retired budget fields.
+// Only persisted settings and backups accept retired configuration fields.
 // Normal configuration writes continue to reject unknown fields.
 func upgradeConfig(raw []byte) (Config, error) {
 	var fields map[string]json.RawMessage
@@ -32,6 +32,7 @@ func upgradeConfig(raw []byte) (Config, error) {
 	}
 	delete(fields, "probe_bytes")
 	delete(fields, "daily_bytes")
+	delete(fields, "proxy_enabled")
 	data, _ := json.Marshal(fields)
 	c := DefaultConfig()
 	dec := json.NewDecoder(bytes.NewReader(data))

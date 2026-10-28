@@ -7,6 +7,7 @@
 | --- | --- |
 | GET /healthz | 管理数据库可用检查 |
 | GET /api/v1/status | 自动状态、当前策略、任务、下次复测和同步状态，不携带记录列表 |
+| GET /api/v1/proxy/traffic | 轻量代理采样：downloaded_bytes 累计下行字节、uptime_seconds 单调运行秒数、started_at 本次管理进程启动时间；沿用管理访问限制 |
 | GET /api/v1/config | 当前完整设置 |
 | PUT /api/v1/config | 完整校验后事务替换设置，取消旧规则探测 |
 | GET /api/v1/queries | 分页查询接入请求记录 |
@@ -41,3 +42,7 @@
 每日汇总按 UTC 日与域名输出 `tests`、`failures`、`health_checks`、`health_failures`、`average_mbps`、`peak_mbps`、`bytes`、`switches`。平均速度只包含成功吞吐样本；首次启用、恢复优选及 IP 替换计入 switches。其分页快照固定行集合，行内当天指标仍可能更新。
 
 内部接口通过容器网络访问，使用 `Authorization: Bearer SERVICE_TOKEN`：DNS 核心提供 PUT /internal/policy、GET /internal/status、POST /internal/check；controller 内部监听提供 POST /internal/observe。生产 Compose 不发布这些端口。
+
+## 下载代理候选
+
+当前候选状态接口新增 service_addresses 与 proxy（enabled/address/port/active_transfers/downloaded_bytes）。GET /api/v1/connections 使用现有分页参数与管理访问控制，返回代理请求的 time/client/method/domain/address。连接记录不表示下载完成，HTTPS 只包含 CONNECT 目标，完整 HTTP URL 可能含私有参数。
