@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"dns-assistant/internal/ui"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,13 +39,6 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	return true
 }
-func randomToken() string {
-	b := make([]byte, 32)
-	if _, e := rand.Read(b); e != nil {
-		panic(e)
-	}
-	return base64.RawURLEncoding.EncodeToString(b)
-}
 
 type API struct {
 	m       *Manager
@@ -66,8 +57,19 @@ func sameOrigin(r *http.Request) bool {
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if _, e := a.m.store.db.Exec("SELECT 1"); e != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		if _, e := a.m.store.db.ExecContext(ctx, "SELECT 1"); e != nil {
 			jsonError(w, 503, "数据库不可用")
+			return
+		}
+		if a.m.dns == nil {
+			jsonError(w, 503, "DNS 不可用")
+			return
+		}
+		check, err := a.m.dns.Check(ctx, "health.dns-assistant.invalid")
+		if err != nil || check.RCode != "NOERROR" || len(check.Answers) == 0 {
+			jsonError(w, 503, "DNS 不可用")
 			return
 		}
 		jsonOut(w, 200, map[string]bool{"ok": true})
@@ -76,6 +78,26 @@ func (a *API) Handler() http.Handler {
 	protected.HandleFunc("GET /api/v1/status", a.status)
 	protected.HandleFunc("GET /api/v1/proxy/traffic", func(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, 200, map[string]any{"downloaded_bytes": a.m.DownloadProxy.downloaded.Load(), "uptime_seconds": time.Since(a.started).Seconds(), "started_at": a.started})
+	})
+	protected.HandleFunc("GET /api/v1/proxy/connections", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, 200, a.m.DownloadProxy.connectionStatuses())
+	})
+	protected.HandleFunc("POST /api/v1/proxy/reconnect", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Domain string `json:"domain"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		valid := DomainValid(input.Domain)
+		if net.ParseIP(input.Domain) != nil {
+			valid = PublicIP(input.Domain)
+		}
+		if !valid {
+			jsonError(w, 400, "请输入有效的目标域名或公网 IPv4")
+			return
+		}
+		jsonOut(w, 200, map[string]int{"closed": a.m.DownloadProxy.reconnect(input.Domain)})
 	})
 	protected.HandleFunc("GET /api/v1/config", func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, a.m.Config()) })
 	protected.HandleFunc("POST /api/v1/probe-batch", func(w http.ResponseWriter, r *http.Request) {
@@ -278,22 +300,16 @@ func (a *API) Handler() http.Handler {
 			jsonError(w, 400, "请输入有效域名")
 			return
 		}
-		b, _ := json.Marshal(v)
-		req, e := http.NewRequestWithContext(r.Context(), "POST", a.m.dnsURL+"/internal/check", strings.NewReader(string(b)))
-		if e != nil {
-			jsonError(w, 500, e.Error())
+		if a.m.dns == nil {
+			jsonError(w, 503, "DNS 服务未就绪")
 			return
 		}
-		req.Header.Set("Authorization", "Bearer "+a.m.token)
-		resp, e := a.m.client.Do(req)
-		if e != nil {
-			jsonError(w, 502, "DNS 核心尚未连接")
+		result, err := a.m.dns.Check(r.Context(), v.Domain)
+		if err != nil {
+			jsonError(w, 502, err.Error())
 			return
 		}
-		defer resp.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		jsonOut(w, 200, result)
 	})
 	protected.HandleFunc("GET /api/v1/events", a.events)
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +328,7 @@ func (a *API) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
+		if !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/logo.svg" {
 			r.URL.Path = "/"
 		}
 		server.ServeHTTP(w, r)
@@ -416,46 +432,28 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
-func (a *API) Internal() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /internal/observe", func(w http.ResponseWriter, r *http.Request) {
-		if !authorized(r, a.m.token) {
-			jsonError(w, 401, "服务认证失败")
-			return
-		}
-		var q Query
-		if !decode(w, r, &q) {
-			return
-		}
-		a.m.Observe(q)
-		jsonOut(w, 200, map[string]bool{"ok": true})
-	})
-	return mux
-}
-func Serve(ctx context.Context, addr string, h http.Handler) error {
-	listener, e := net.Listen("tcp4", addr)
-	if e != nil {
-		return e
-	}
-	return ServeListener(ctx, listener, h)
-}
-
 func ServeListener(ctx context.Context, listener net.Listener, h http.Handler) error {
-	s := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, BaseContext: func(net.Listener) context.Context { return ctx }}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.Shutdown(c)
+		if s.Shutdown(c) != nil {
+			s.Close()
+		}
 	}()
 	e := s.Serve(listener)
+	cancel()
+	<-shutdownDone
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}
 	return e
 }
-
-func NewKey() string { return randomToken() }
 
 func adminHostAllowed(r *http.Request, c Config) bool {
 	host := r.Host

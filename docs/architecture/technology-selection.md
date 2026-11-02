@@ -1,6 +1,6 @@
 # 实现与技术选型
 
-更新：2026-10-20。有效规格：[需求](../requirements.md)、[验收矩阵](../acceptance.md)。实际测试结果见 [验证记录](../validation.md)。
+有效规格：[需求](../requirements.md)、[验收矩阵](../acceptance.md)。实际测试结果见 [验证记录](../validation.md)。
 
 ## 当前技术
 
@@ -10,9 +10,9 @@
 | DNS | dnsproxy v0.86.0、miekg/dns v1.1.72 | 复用监听、转发、缓存；使用公开 Handler 扩展本地策略 |
 | 选优 | 自有后台调度与状态机 | 指定 IP 的 HTTP 内容／吞吐检查，本轮持续速度排名、接近保留、故障回默认后复测 |
 | Web | React、TypeScript、Vite、React Router | 局域网免登录单页应用，静态文件嵌入 Go |
-| 数据 | SQLite，modernc.org/sqlite v1.60.1 | CGo-free，WAL，控制进程独占数据库，显式事务 |
+| 数据 | SQLite，modernc.org/sqlite v1.60.1 | CGo-free，WAL，进程内共享数据库，显式事务 |
 | 实时状态 | REST JSON + SSE | 观察状态，断线后重新读取完整状态 |
-| 部署 | 一个镜像、两个 Compose 服务 | 非 root、只读根目录、独立数据卷、局域网发布端口 |
+| 部署 | 一个镜像、一个进程、一个 Compose 服务 | 非 root、只读根目录、单个 data 数据卷、局域网发布端口 |
 
 具体前端版本以 [锁文件](../../web/package-lock.json) 为准；Go 版本依据 [官方发布记录](https://go.dev/doc/devel/release)，React 的静态单页构建依据 [官方指南](https://react.dev/learn/build-a-react-app-from-scratch)。
 原始引擎比较见 [调研](../research/dns-engine-comparison.md)。AdGuard Home 未引入；dnsproxy 仅是应用内代码依赖，管理与选优均由本项目提供。
@@ -25,8 +25,8 @@ flowchart LR
     DNS -->|普通解析| Upstream[上游 DNS]
     Browser[局域网浏览器] -->|8080| Controller[控制与管理]
     Controller -->|后台检查| CDN[候选 CDN]
-    Controller -->|密钥校验的策略 API| DNS
-    DNS -->|异步观察| Controller
+    Controller -->|直接应用策略| DNS
+    DNS -->|有界异步队列| Controller
     Controller --> DB[(SQLite)]
     DNS --> Snapshot[策略快照]
     Device -->|DNS 模式直接下载| CDN
@@ -34,12 +34,12 @@ flowchart LR
     DownloadProxy -->|公网下载| CDN
 ```
 
-DNS 子命令在容器内监听 5353，Compose 发布宿主机 53/TCP 和 53/UDP；策略接口 9090 不发布到宿主机。controller 提供 Web 8080 与内部观察入口 8081，只有 Web 发布到指定 SERVER_IP。
+DNS、管理、调度与下载代理均在同一 Go 进程运行。容器内 DNS 监听 5353，Compose 发布宿主机 53/TCP、53/UDP、管理 8080 和代理 8082。内部不再使用 HTTP 监听或服务间密钥；模块通过方法调用和有界观察队列协作。停止程序会一并停止全部服务，管理或代理监听失败也会触发统一退出。
 
 SQLite 保存配置、IPv4 策略、版本、持久调度、同步状态、接入与探测明细、事件及每日汇总。配置与策略相关状态事务提交后更新内存。schema 1/2/3 升级到 4，保留 daily 汇总并新增独立连接记录表、删除旧预算表，拒绝未来 schema。测速结果与汇总在同一事务写入；汇总按 UTC 日/域名分组，保留 90 天/10,000 行。
-四个记录接口用最大 ID 作为分页快照，在同一读取事务中计算总数并取页；新增记录不影响既有快照，清理后超出范围的页码收敛到末页。记录写入事务同时按递增 ID 限制条数，查询／结果／事件分别最多 10,000／5,000／500 条。独立维护任务在 controller 启动及每小时执行时间与数量清理，保留窗口分别为 7／30／30 天，并尝试截断 WAL；已释放 SQLite 页面供后续写入复用。维护任务随 controller 上下文退出，与测速 worker 是否运行、成功无关。DNS 仍仅通过有界异步观察队列上报，不直接读写 SQLite。
+四个记录接口用最大 ID 作为分页快照，在同一读取事务中计算总数并取页；新增记录不影响既有快照，清理后超出范围的页码收敛到末页。记录写入事务同时按递增 ID 限制条数，查询／结果／事件分别最多 10,000／5,000／500 条。独立维护任务在程序启动及每小时执行时间与数量清理，保留窗口分别为 7／30／30 天，并尝试截断 WAL；已释放 SQLite 页面供后续写入复用。维护任务随程序上下文退出，与测速 worker 是否运行、成功无关。DNS 仍仅通过有界异步观察队列上报，不直接读写 SQLite。
 
-DNS 独占 JSON 快照，先验证与落盘再原子切换。策略按域名与地址族排序、时间统一为 UTC，逻辑相同的同版本重传幂等；禁止版本回退及同版本改变内容。保存的对象复制后发布，调用方不能改变服务中的快照。管理离线时保留未过期策略，过期后普通解析。
+DNS 独占 JSON 快照，先验证与落盘再原子切换。策略按域名与地址族排序、时间统一为 UTC，逻辑相同的同版本重传幂等；禁止版本回退及同版本改变内容。保存的对象复制后发布，调用方不能改变服务中的快照。策略应用失败时保留未过期策略，过期后普通解析；重启加载快照。
 
 ## DNS 适配
 
@@ -67,14 +67,14 @@ dnsproxy 仍传递依赖维护范围收缩的 miekg/dns。保留依赖升级回�
 
 按用户最终要求移除账户、密码和登录。管理入口仅允许配置网段及允许 Host；IP／localhost 默认可用，其他主机名通过 ADMIN_HOSTS 明确允许。写操作要求同源 Origin 与 X-DNS-Request: 1，自定义请求头配合无 CORS 授权阻止跨站写入。反向代理不得把管理入口暴露给不受信任网络。
 
-服务间接口始终使用随机 SERVICE_TOKEN；该值不进入浏览器或配置备份。配置恢复校验完整格式、未知字段及上限。前端不依赖外部 CDN。
+配置恢复校验完整格式、未知字段及上限。前端不依赖外部 CDN。
 
 ## 文件组织
 
 ```text
 cmd/dns-assistant/main.go  命令、启动、健康检查与退出
 internal/app/types.go     配置、规则和策略模型、校验
-internal/app/dns.go       DNS 适配、快照、内部策略接口
+internal/app/dns.go       DNS 适配、快照、策略应用与查询检查
 internal/app/probe.go     受限 HTTP／TLS 探测
 internal/app/selection.go 选择与切换状态机
 internal/app/manager.go   调度、去重和策略发布
@@ -90,4 +90,4 @@ deploy/                  服务主机安装前检查脚本
 
 ## 下载代理候选
 
-当前候选增加 Go HTTP/CONNECT 下载代理和独立连接记录表，复用配置访问网段及优选策略。controller 的 TCP 8082 与 DNS 服务独立；schema 4 不兼容旧程序直接打开，回滚须恢复配套冷备份。
+当前候选增加 Go HTTP/CONNECT 下载代理和独立连接记录表，复用配置访问网段及优选策略。TCP 8082 与 DNS 共用进程生命周期；schema 4 不兼容旧程序直接打开，回滚须恢复配套冷备份。

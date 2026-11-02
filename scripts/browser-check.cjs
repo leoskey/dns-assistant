@@ -242,12 +242,23 @@ async function poll(fn, message, timeout = 15000) {
     const speed = proxyCard.getByLabel("当前下载速度", { exact: true });
     await poll(async () => (await speed.innerText()) === "0.00 MB/s", "idle speed did not settle at zero");
     const stream = http.request(proxyURL, { path: "http://xvcf1.xboxlive.com/stream-speed", headers: { Host: "xvcf1.xboxlive.com" } });
-    stream.on("response", response => response.resume());
+    stream.on("response", response => { response.on("error", () => {}); response.resume(); });
     stream.on("error", () => {});
     stream.end();
     try {
       await poll(async () => parseFloat(await speed.innerText()) > 0.5, "real proxy stream did not update download speed");
+      const live = page.getByRole("region", { name: "实际代理连接" });
+      const liveRow = live.getByRole("row").filter({ hasText: "xvcf1.xboxlive.com" });
+      await liveRow.getByText("1.1.1.1", { exact: true }).waitFor();
+      await request("probe", { rule_id: beforeProxy.rules[0].id, ip: "8.8.8.8" });
+      await liveRow.getByText("等待重连 → 8.8.8.8", { exact: true }).waitFor();
+      await liveRow.getByText("1.1.1.1", { exact: true }).waitFor();
       await page.screenshot({ path: path.join(output, "proxy-speed-active.png") });
+      page.once("dialog", dialog => dialog.accept());
+      await liveRow.getByRole("button", { name: "重新连接", exact: true }).click();
+      await poll(async () => (await request("proxy/connections")).length === 0, "targeted reconnect did not close actual request");
+      await request("probe", { rule_id: beforeProxy.rules[0].id, ip: "1.1.1.1" });
+      await poll(async () => (await request("status")).selections.some(s => s.rule_id === beforeProxy.rules[0].id && s.ip === "1.1.1.1"), "fixture selection did not recover");
     } finally {
       stream.destroy();
     }

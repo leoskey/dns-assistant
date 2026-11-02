@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/miekg/dns"
-	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -62,14 +61,13 @@ type Manager struct {
 	cancel        context.CancelFunc
 	prober        Prober
 	resolve       func(context.Context, string, Config) []string
-	dnsURL, token string
-	client        *http.Client
+	dns           DNSBackend
 	notify        chan struct{}
 	DownloadProxy *DownloadProxy
 }
 
-func NewManager(s *Store, dnsURL, token string) (*Manager, error) {
-	m := &Manager{store: s, selections: map[string]Selection{}, tasks: map[string]Task{}, queue: make(chan Job, 128), pending: map[string]bool{}, last: map[string]time.Time{}, healthQueue: make(chan Job, 128), generation: 1, ruleEpoch: map[string]uint64{}, retry: map[string]time.Time{}, retryCount: map[string]int{}, dnsURL: dnsURL, token: token, client: &http.Client{Timeout: 5 * time.Second}, notify: make(chan struct{}, 1)}
+func NewManager(s *Store, dns DNSBackend) (*Manager, error) {
+	m := &Manager{store: s, selections: map[string]Selection{}, tasks: map[string]Task{}, queue: make(chan Job, 128), pending: map[string]bool{}, last: map[string]time.Time{}, healthQueue: make(chan Job, 128), generation: 1, ruleEpoch: map[string]uint64{}, retry: map[string]time.Time{}, retryCount: map[string]int{}, dns: dns, notify: make(chan struct{}, 1)}
 	m.resolve = resolveCandidates
 	m.config = DefaultConfig()
 	var raw json.RawMessage
@@ -641,33 +639,23 @@ func (m *Manager) Publish(ctx context.Context) {
 	}
 	m.mu.RUnlock()
 	normalizePolicy(&p)
-	b, e := json.Marshal(p)
-	if e != nil {
+	if m.dns == nil {
 		return
 	}
-	req, e := http.NewRequestWithContext(ctx, "PUT", m.dnsURL+"/internal/policy", bytes.NewReader(b))
-	if e != nil {
+	if err := m.dns.Apply(ctx, p); err != nil {
+		slog.Debug("策略应用失败", "error", err)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+m.token)
-	resp, e := m.client.Do(req)
-	if e != nil {
-		slog.Debug("策略同步等待 DNS", "error", e)
-		return
-	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
-	resp.Body.Close()
-	if resp.StatusCode == 200 {
-		m.mu.Lock()
-		changed := m.applied < p.Version
-		m.applied = max(m.applied, p.Version)
-		m.lastSync = time.Now()
-		m.mu.Unlock()
-		if changed {
-			m.signal()
-		}
+	m.mu.Lock()
+	changed := m.applied < p.Version
+	m.applied = max(m.applied, p.Version)
+	m.lastSync = time.Now()
+	m.mu.Unlock()
+	if changed {
+		m.signal()
 	}
 }
+
 func (m *Manager) RestoreDefault(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

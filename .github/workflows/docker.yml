@@ -40,8 +40,8 @@ jobs:
           npm ci --prefix web --no-audit --no-fund
           npm run build --prefix web
           npm test --prefix web
-      - name: Check automatic server address
-        run: npm run test:server-ip
+      - name: Check single-container deployment
+        run: npm run test:compose
       - name: Check release version
         id: version
         env:
@@ -53,6 +53,40 @@ jobs:
         run: go test -race ./...
       - name: Vet Go
         run: go vet ./...
+
+  containers:
+    name: Container lifecycle (${{ matrix.arch }})
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: dns-assistant:test
+          cache-from: type=gha,scope=dns-assistant
+          cache-to: type=gha,scope=dns-assistant-${{ matrix.arch }},mode=max
+          build-args: VCS_REF=${{ github.sha }}
+      - name: Test single-container lifecycle
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/${{ matrix.arch }}
+        run: |
+          docker compose config --format json > "$RUNNER_TEMP/compose.json"
+          jq -e '(.services | keys) == ["app"] and (.volumes | keys) == ["data"] and (.services.app.volumes | map(.target)) == ["/data"]' "$RUNNER_TEMP/compose.json"
+          sh scripts/test-container.sh dns-assistant:test
 
   windows:
     name: Windows x64 installer and portable package
@@ -83,6 +117,7 @@ jobs:
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-package.ps1
+          ./scripts/test-windows-update.ps1
       - name: Upload Windows packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -96,7 +131,7 @@ jobs:
   publish:
     name: Publish amd64 and arm64
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: test
+    needs: [test, containers]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
@@ -142,7 +177,10 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          cache-from: type=gha,scope=dns-assistant
+          cache-from: |
+            type=gha,scope=dns-assistant
+            type=gha,scope=dns-assistant-amd64
+            type=gha,scope=dns-assistant-arm64
           cache-to: type=gha,scope=dns-assistant,mode=max
           provenance: mode=min
           build-args: |

@@ -42,21 +42,6 @@ for (const file of [
 
 // shortcut: the website shows only the current release; narrow its patterns if historical versions are added.
 for (const [file, pattern, replacement] of [
-  [
-    "README.md",
-    /当前源码版本：\*\*v\d+\.\d+\.\d+\*\*/g,
-    `当前源码版本：**v${version}**`,
-  ],
-  [
-    "README.md",
-    /\/releases\/tag\/v\d+\.\d+\.\d+/g,
-    `/releases/tag/v${version}`,
-  ],
-  [
-    ".env.example",
-    /((?:ghcr\.io|ghcr\.nju\.edu\.cn)\/leoskey\/dns-assistant:)[\w.-]+/g,
-    `$1${version}`,
-  ],
   ["website/index.html", /\bv\d+\.\d+\.\d+\b/g, `v${version}`],
   [
     "website/index.html",

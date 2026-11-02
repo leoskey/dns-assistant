@@ -25,7 +25,7 @@ func testManager(t *testing.T) *Manager {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { s.Close() })
-	m, e := NewManager(s, "http://127.0.0.1:1", strings.Repeat("s", 40))
+	m, e := NewManager(s, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -128,10 +128,7 @@ func TestDNSFallbackRetestAndRecoveryIntegration(t *testing.T) {
 	m := testManager(t)
 	c := m.Config()
 	r := c.Rules[0]
-	control := httptest.NewServer(d.Handler())
-	defer control.Close()
-	m.dnsURL = control.URL
-	m.token = d.token
+	m.dns = d
 	// The controlled DNS fixture uses loopback upstreams only through the explicit test mode.
 	up := d.policy.Load().Config.Upstreams
 	m.config.Upstreams = up
@@ -249,7 +246,7 @@ func TestLowFrequencySchedulePersistsAndBacksOff(t *testing.T) {
 	if e := m.store.Set("schedule", m.scheduleLocked()); e != nil {
 		t.Fatal(e)
 	}
-	restarted, e := NewManager(m.store, m.dnsURL, m.token)
+	restarted, e := NewManager(m.store, m.dns)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -365,7 +362,7 @@ func TestFeedAtomicUpdateAndLastGood(t *testing.T) {
 			t.Fatal("last good lost", m.Config(), m.feed)
 		}
 	}
-	restarted, e := NewManager(m.store, m.dnsURL, m.token)
+	restarted, e := NewManager(m.store, m.dns)
 	if e != nil || restarted.Config().RuleVersion != "v2" || restarted.feed.Error == "" {
 		t.Fatal("feed state lost after restart", e)
 	}

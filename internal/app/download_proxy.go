@@ -7,20 +7,26 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type DownloadProxy struct {
-	m          *Manager
-	forward    *httputil.ReverseProxy
-	slots      chan struct{}
-	active     atomic.Int64
-	downloaded atomic.Int64
+	m            *Manager
+	forward      *httputil.ReverseProxy
+	slots        chan struct{}
+	active       atomic.Int64
+	downloaded   atomic.Int64
+	transport    *proxyTransport
+	transfersMu  sync.Mutex
+	transfers    map[uint64]*proxyTransfer
+	nextTransfer uint64
 	// Only controlled tests replace the final dial; target validation still runs.
 	dial func(context.Context, string, string) (net.Conn, error)
 }
@@ -34,14 +40,15 @@ type ProxyStatus struct {
 }
 
 func newDownloadProxy(m *Manager) *DownloadProxy {
-	p := &DownloadProxy{m: m, slots: make(chan struct{}, 64), dial: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
+	p := &DownloadProxy{m: m, slots: make(chan struct{}, 64), dial: (&net.Dialer{Timeout: 5 * time.Second}).DialContext, transfers: map[uint64]*proxyTransfer{}}
+	p.transport = &proxyTransport{p: p, pools: map[string]proxyPool{}}
 	p.forward = &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.Out.Host = r.In.URL.Host
 			r.Out.Header.Del("Proxy-Authorization")
 			r.Out.Header.Del("Proxy-Connection")
 		},
-		Transport:     &http.Transport{Proxy: nil, DialContext: p.connect, DisableCompression: true, MaxIdleConns: 64, IdleConnTimeout: 60 * time.Second, ResponseHeaderTimeout: 15 * time.Second},
+		Transport:     p.transport,
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			http.Error(w, "下载目标连接失败", http.StatusBadGateway)
@@ -68,10 +75,26 @@ func (p *DownloadProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.recordRequest(r)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	client, _, _ := net.SplitHostPort(r.RemoteAddr)
+	domain := strings.TrimSuffix(strings.ToLower(r.URL.Hostname()), ".")
+	p.transfersMu.Lock()
+	p.nextTransfer++
+	transfer := &proxyTransfer{ProxyConnectionStatus: ProxyConnectionStatus{ID: p.nextTransfer, Domain: domain, Client: client, State: "connecting", StartedAt: time.Now().UTC()}, cancel: cancel}
+	p.transfers[transfer.ID] = transfer
+	p.transfersMu.Unlock()
+	defer func() { p.transfersMu.Lock(); delete(p.transfers, transfer.ID); p.transfersMu.Unlock() }()
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		if conn, ok := info.Conn.(*proxyConnection); ok {
+			p.connected(transfer, conn)
+		}
+	}}
+	r = r.WithContext(httptrace.WithClientTrace(ctx, trace))
 	p.active.Add(1)
 	defer p.active.Add(-1)
 	if r.Method == http.MethodConnect {
-		p.tunnel(w, r)
+		p.tunnel(w, r, transfer)
 		return
 	}
 	p.forward.ServeHTTP(w, r)
@@ -122,29 +145,28 @@ func validateProxyTarget(r *http.Request) error {
 }
 
 func (p *DownloadProxy) connect(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	return p.connectRoute(ctx, addr, p.route(host))
+}
+
+func (p *DownloadProxy) connectRoute(ctx context.Context, addr string, route proxyRoute) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
-	host = strings.TrimSuffix(strings.ToLower(host), ".")
-	p.m.mu.RLock()
-	c := p.m.config
-	selected := ""
-	for _, rule := range c.Rules {
-		if rule.Enabled && rule.Domain == host {
-			s := p.m.selections[key(host, "A")]
-			if s.RuleID == rule.ID && s.ValidUntil.After(time.Now()) && (c.Enabled || s.Fixed) {
-				selected = s.IP
-			}
-			break
-		}
+	host = route.host
+	c, selected := route.config, route.selected
+	wrap := func(conn net.Conn, ip, state string) net.Conn {
+		return &proxyConnection{Conn: conn, downloaded: &p.downloaded, ip: ip, state: state, routeKey: route.key()}
 	}
-	p.m.mu.RUnlock()
 	if selected != "" {
 		if conn, err := p.dial(ctx, "tcp4", net.JoinHostPort(selected, port)); err == nil {
-			return &proxyConnection{Conn: conn, downloaded: &p.downloaded}, nil
+			return wrap(conn, selected, "selected"), nil
 		}
 	}
 	ips := []string{host}
@@ -156,19 +178,30 @@ func (p *DownloadProxy) connect(ctx context.Context, network, addr string) (net.
 			continue
 		}
 		if conn, err := p.dial(ctx, "tcp4", net.JoinHostPort(ip, port)); err == nil {
-			return &proxyConnection{Conn: conn, downloaded: &p.downloaded}, nil
+			state := route.state
+			if selected != "" {
+				state = "fallback"
+			}
+			return wrap(conn, ip, state), nil
 		}
 	}
 	return nil, errors.New("目标没有可连接的公网 IPv4")
 }
 
-func (p *DownloadProxy) tunnel(w http.ResponseWriter, r *http.Request) {
+func (p *DownloadProxy) connected(transfer *proxyTransfer, conn *proxyConnection) {
+	p.transfersMu.Lock()
+	defer p.transfersMu.Unlock()
+	transfer.IP, transfer.State, transfer.routeKey = conn.ip, conn.state, conn.routeKey
+}
+
+func (p *DownloadProxy) tunnel(w http.ResponseWriter, r *http.Request, transfer *proxyTransfer) {
 	upstream, err := p.connect(r.Context(), "tcp4", r.Host)
 	if err != nil {
 		http.Error(w, "下载目标连接失败", http.StatusBadGateway)
 		return
 	}
 	defer upstream.Close()
+	p.connected(transfer, upstream.(*proxyConnection))
 	client, buffered, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		return
@@ -205,7 +238,8 @@ func (p *DownloadProxy) tunnel(w http.ResponseWriter, r *http.Request) {
 
 type proxyConnection struct {
 	net.Conn
-	downloaded *atomic.Int64
+	downloaded          *atomic.Int64
+	ip, state, routeKey string
 }
 
 func (c *proxyConnection) Read(b []byte) (int, error) {
@@ -215,19 +249,27 @@ func (c *proxyConnection) Read(b []byte) (int, error) {
 }
 
 func ServeDownloadProxy(ctx context.Context, addr string, p *DownloadProxy) error {
+	ctx, cancelServer := context.WithCancel(ctx)
+	defer cancelServer()
 	s := &http.Server{Handler: p, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, BaseContext: func(net.Listener) context.Context { return ctx }}
 	listener, err := net.Listen("tcp4", addr)
 	if err != nil {
 		return err
 	}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.Shutdown(shutdown)
-		p.forward.Transport.(*http.Transport).CloseIdleConnections()
+		if s.Shutdown(shutdown) != nil {
+			s.Close()
+		}
+		p.transport.CloseIdleConnections()
 	}()
 	err = s.Serve(listener)
+	cancelServer()
+	<-shutdownDone
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

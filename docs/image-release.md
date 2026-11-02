@@ -10,7 +10,7 @@
 
 同一工作流也在 Windows runner 构建安装程序、便携 ZIP 与校验清单，执行 Windows 原生生命周期及安装／卸载检查，然后上传 Actions artifacts。版本标签在测试、Windows 包及双架构镜像检查全部通过后自动发布 GitHub Release；发布说明使用对应 `docs/releases/vX.Y.Z.md`，附件包含安装程序、ZIP 和校验清单。Windows 打包与使用见 [单机安装说明](windows.md)。
 
-镜像地址：`ghcr.io/leoskey/dns-assistant`。工作流位于 [.github/workflows/docker.yml](../.github/workflows/docker.yml)，由 main 推送、`vX.Y.Z` 标签或手动触发；PR 只验证。推送到自己的 fork 时会发布到该 fork 的 GHCR 命名空间，部署时同步修改 `DNS_ASSISTANT_IMAGE`。
+镜像地址：`ghcr.io/leoskey/dns-assistant`。工作流位于 [.github/workflows/docker.yml](../.github/workflows/docker.yml)，由 main 推送、`vX.Y.Z` 标签或手动触发；PR 只验证。推送到自己的 fork 时会发布到该 fork 的 GHCR 命名空间，部署时同步修改 `services.app.image`。
 
 ## 流程与权限
 
@@ -27,7 +27,7 @@ main 的新运行会取消同一分支的旧运行，版本标签的发布不被
 
 程序版本唯一来源为 `internal/app/VERSION`，使用三段数字：功能兼容修复递增补丁号，新增兼容功能递增次版本，不兼容变更递增主版本。规则表版本和数据库 schema 版本独立维护。
 
-升级时只修改 VERSION，再执行 `npm run version:sync`，同步根包、前端包与锁文件、README、`.env.example` 两个镜像入口、官网链接与页脚。补充 `docs/releases/vX.Y.Z.md` 后执行 `npm run version:check`；该检查用于容器和官网 CI，拒绝版本漂移、缺失发布说明及不匹配的 Git 标签。历史发布说明保留其原始版本。Windows 文件名和安装器版本直接读取 VERSION；管理页显示 API 的 `app_version`，API 和 `dns-assistant version` 均读取 Go 内嵌的同一文件。镜像使用相同版本生成标签和 OCI `org.opencontainers.image.version`，另注入源码 revision。
+升级时只修改 VERSION，再执行 `npm run version:sync`，同步根包、前端包与锁文件、官网链接与页脚；README 不展示版本。补充 `docs/releases/vX.Y.Z.md` 后执行 `npm run version:check`；该检查用于容器和官网 CI，拒绝版本漂移、缺失发布说明及不匹配的 Git 标签。历史发布说明保留其原始版本。Windows 文件名和安装器版本直接读取 VERSION；管理页显示 API 的 `app_version`，API 和 `dns-assistant version` 均读取 Go 内嵌的同一文件。镜像使用相同版本生成标签和 OCI `org.opencontainers.image.version`，另注入源码 revision。
 
 - 镜像仅允许 `latest` 和完整版本号 `X.Y.Z` 两类标签；版本号读取 VERSION，并设为元数据首选版本。不生成提交号或 `X.Y` 标签。
 - main 与 `vX.Y.Z`：均生成 `X.Y.Z` 和 `latest`；每次更新 latest 都同时带有对应版本标签。部署前仍须检查发布后的镜像校验结果。
@@ -43,7 +43,7 @@ git push origin "v$version"
 
 版本开发期间，同一 VERSION 的 main 构建会更新对应版本标签；正式发布后的修复须先递增版本号。源码提交号保留在 OCI revision 中，需要保证内容固定时使用 Actions 摘要中的完整 digest。此规则不自动删除 GHCR 已有的历史标签。
 
-确认目标版本已成功发布后，将 `.env.example` 中的版本镜像地址用于 `.env`。版本发布须通过两种架构的配置与版本命令检查；源码同步不代表该版本镜像或官网安装包已公开可用。
+确认目标版本已成功发布后，在 Compose 的 `services.app.image` 中填写目标镜像地址。版本发布须通过两种架构的配置与版本命令检查；源码同步不代表该版本镜像或官网安装包已公开可用。
 
 ## GHCR 首次公开
 
@@ -62,11 +62,7 @@ docker pull ghcr.io/leoskey/dns-assistant:latest
 
 中国大陆家宽访问 GHCR 缓慢时，可检查 [南京大学镜像站](https://mirror.nju.edu.cn/) 的 GHCR 缓存入口是否可用。发布仍在 ghcr.io；缓存拉取路径为 `ghcr.nju.edu.cn`，其后仓库路径和标签保持一致。使用前核对目标版本的可达性、摘要与平台列表，不承诺固定下载速度。
 
-在 `.env` 设置：
-
-```dotenv
-DNS_ASSISTANT_IMAGE=ghcr.nju.edu.cn/leoskey/dns-assistant:latest
-```
+将 Compose 的 `services.app.image` 改为 `ghcr.nju.edu.cn/leoskey/dns-assistant:latest`。
 
 然后在服务主机上直接执行：
 
@@ -75,7 +71,7 @@ docker compose pull
 docker compose up -d --wait
 ```
 
-自定义 Compose 若直接填写镜像地址，须同步替换两个服务的 image；保留环境文件、`env_file` 引用、项目名称及两个数据卷，并移除阻止网络拉取的 `pull_policy: never`。通过服务主机图形界面维护时，先完成镜像下载，再按该系统的 Compose 重建操作更新服务；重建期间会有短暂 DNS 中断。
+自定义 Compose 若直接填写镜像地址，修改 `app` 服务的 image；保留项目名称及 `data` 数据卷，并移除阻止网络拉取的 `pull_policy: never`。通过服务主机图形界面维护时，先完成镜像下载，再按该系统的 Compose 重建操作更新服务；重建期间会有短暂 DNS 中断。
 
 部分图形界面可能不支持完整的 `@sha256:...` 地址；遇到解析失败时，可使用已发布的版本／提交标签，或改用 Docker CLI／Compose 指定经核对的 digest。
 
@@ -90,16 +86,16 @@ docker buildx imagetools inspect ghcr.nju.edu.cn/leoskey/dns-assistant:latest
 
 Docker Hub 的 `registry-mirrors` 不会重定向 GHCR，因此本方案按项目使用明确的 GHCR 缓存地址。需要使用 HTTP 代理拉取镜像时，应配置 Docker daemon 的代理，而非仅给容器添加 HTTP_PROXY。依据：[Docker daemon 代理](https://docs.docker.com/engine/daemon/proxy/)、[Docker Hub 缓存范围](https://docs.docker.com/docker-hub/image-library/mirror/)。
 
-如果所选拉取入口暂时不可用，已运行容器继续使用本地镜像。可在维护时切回 ghcr.io 对应版本，或从可连通 GHCR 的电脑导出目标架构镜像后导入；记录来源 digest 和文件校验值，继续保留密钥与数据卷。
+如果所选拉取入口暂时不可用，已运行容器继续使用本地镜像。可在维护时切回 ghcr.io 对应版本，或从可连通 GHCR 的电脑导出目标架构镜像后导入；记录来源 digest 和文件校验值，继续保留数据卷。
 
 ## 升级与源码构建
 
-按 [部署说明](deployment.md) 操作。单独使用 `compose.yaml` 时拉取 `DNS_ASSISTANT_IMAGE`；源码部署同时使用 `compose.build.yaml`，显式覆盖两个服务为本地构建。两种方式共享端口、密钥与卷定义，维护命令须保持所选方式一致。
+按 [部署说明](deployment.md) 操作。单独使用 `compose.yaml` 时拉取 `services.app.image` 指定的镜像；源码部署同时使用 `compose.build.yaml`，覆盖 `app` 服务为本地构建。两种方式共享端口与卷定义，维护命令须保持所选方式一致。
 
-保留现有项目名称、环境文件和两个数据卷。镜像部署修改目标版本后执行 pull 与 up；源码部署切换源码后，带上两个 `-f` 参数执行 build 与 up。不使用 `down -v`。回滚到固定镜像或源码版本时保持相应部署方式；数据库格式发生变化时，按迁移说明同时恢复匹配的数据卷快照。
+保留现有项目名称和 `data` 数据卷。镜像部署修改目标版本后执行 pull 与 up；源码部署切换源码后，带上两个 `-f` 参数执行 build 与 up。不使用 `down -v`。回滚到固定镜像或源码版本时保持相应部署方式；数据库格式发生变化时，按迁移说明同时恢复匹配的数据卷快照。
 
 依据：[GitHub 发布镜像文档](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)、[GHCR 权限与公开说明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)、[Docker 多架构构建](https://docs.docker.com/build/ci/github-actions/multi-platform/)。
 
-## 下载代理候选
+## 发布范围
 
-0.4.0 为本地候选，当前未公开发布。不得将本地验证等同 GHCR/Release 已更新；本地镜像导入同样核对版本和摘要，并在 schema 4 迁移前保存完整冷备份。
+Docker 镜像只在两种架构的容器运行检查通过后发布。Windows 安装包由版本标签流程单独发布；本地构建或 Actions 附件不等于正式下载入口已更新。

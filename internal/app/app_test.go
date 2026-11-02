@@ -318,7 +318,7 @@ func unusedAddr(t *testing.T) string {
 func startDNS(t *testing.T) (*DNS, *atomic.Int64) {
 	t.Helper()
 	up, count := makeUpstream(t)
-	d := NewDNS(unusedAddr(t), t.TempDir(), strings.Repeat("s", 40), "")
+	d := NewDNS(unusedAddr(t), t.TempDir(), nil)
 	d.testMode = true
 	c := DefaultConfig()
 	c.Upstreams = []string{up}
@@ -482,7 +482,7 @@ func testAPI(t *testing.T) (*API, http.Handler) {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { s.Close() })
-	m, e := NewManager(s, "http://127.0.0.1:1", strings.Repeat("s", 40))
+	m, e := NewManager(s, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -572,16 +572,17 @@ func TestLANManagementOriginBackupAndRestore(t *testing.T) {
 		t.Fatal("obsolete account endpoint")
 	}
 }
-func TestJSONAndServiceAuthentication(t *testing.T) {
+func TestJSONValidationAndRemovedInternalEndpoints(t *testing.T) {
 	_, h := testAPI(t)
 	for _, body := range []string{`{"unknown":true}`, `{} {}`, strings.Repeat("x", 2<<20)} {
 		if call(h, "PUT", "/api/v1/config", body, "1", "").Code != 400 {
 			t.Fatal("bad input allowed")
 		}
 	}
-	d, _ := startDNS(t)
-	if call(d.Handler(), "PUT", "/internal/policy", "{}", "", "").Code != 401 {
-		t.Fatal("internal no auth")
+	for _, endpoint := range []string{"/internal/policy", "/internal/observe"} {
+		if call(h, "PUT", endpoint, "{}", "", "").Code != 404 {
+			t.Fatal("internal service endpoint still exposed")
+		}
 	}
 }
 func TestAutomaticManagerPublishAndFailedPin(t *testing.T) {
@@ -591,15 +592,10 @@ func TestAutomaticManagerPublishAndFailedPin(t *testing.T) {
 	}
 	defer s.Close()
 	var publications atomic.Int64
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+strings.Repeat("s", 40) {
-			t.Error("missing auth")
-		}
+	m, e := NewManager(s, &testDNSBackend{apply: func(_ context.Context, _ Policy) error {
 		publications.Add(1)
-		jsonOut(w, 200, map[string]bool{"ok": true})
-	}))
-	defer server.Close()
-	m, e := NewManager(s, server.URL, strings.Repeat("s", 40))
+		return nil
+	}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -730,14 +726,10 @@ func TestHealthFailureRestoresDefaultBeforeRetest(t *testing.T) {
 	}
 	defer s.Close()
 	publishedCh := make(chan Policy, 1)
-	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var p Policy
-		json.NewDecoder(r.Body).Decode(&p)
+	m, e := NewManager(s, &testDNSBackend{apply: func(_ context.Context, p Policy) error {
 		publishedCh <- p
-		jsonOut(w, 200, map[string]bool{"ok": true})
-	}))
-	defer control.Close()
-	m, e := NewManager(s, control.URL, strings.Repeat("s", 40))
+		return nil
+	}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -770,7 +762,7 @@ func TestCoreReloadsSnapshotWithoutController(t *testing.T) {
 	}
 	dir := d.dir
 	d.Close(context.Background())
-	restarted := NewDNS(d.addr, dir, d.token, "")
+	restarted := NewDNS(d.addr, dir, nil)
 	restarted.testMode = true
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -802,7 +794,7 @@ func TestPolicyOrderAndTimezoneAreIdempotent(t *testing.T) {
 }
 
 func TestDNSACLAndRateLimit(t *testing.T) {
-	d := NewDNS("127.0.0.1:5353", t.TempDir(), strings.Repeat("s", 40), "")
+	d := NewDNS("127.0.0.1:5353", t.TempDir(), nil)
 	q := new(dns.Msg)
 	q.SetQuestion("example.com.", dns.TypeA)
 	request := &proxy.DNSContext{Req: q, Addr: netip.MustParseAddrPort("8.8.8.8:1234"), Proto: proxy.ProtoUDP}
@@ -822,7 +814,7 @@ func TestFailedPinAndReadonlyConfigKeepPublishedState(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.Close()
-	m, e := NewManager(s, "http://127.0.0.1:1", strings.Repeat("s", 40))
+	m, e := NewManager(s, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -871,20 +863,18 @@ func TestProbeProfileSeparatesDifferentSamples(t *testing.T) {
 func TestDNSUpstreamFailureAndNonblockingObservation(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	defer close(release)
+	up, _ := makeUpstream(t)
+	d := NewDNS(unusedAddr(t), t.TempDir(), func(ctx context.Context, _ Query) {
 		select {
 		case entered <- struct{}{}:
 		default:
 		}
 		select {
 		case <-release:
-		case <-r.Context().Done():
+		case <-ctx.Done():
 		}
-	}))
-	defer server.Close()
-	defer close(release)
-	up, _ := makeUpstream(t)
-	d := NewDNS(unusedAddr(t), t.TempDir(), strings.Repeat("s", 40), server.URL)
+	})
 	d.testMode = true
 	c := DefaultConfig()
 	c.Upstreams = []string{unusedAddr(t), up}

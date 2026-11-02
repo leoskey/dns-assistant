@@ -20,12 +20,10 @@ func TestBrowserFixture(t *testing.T) {
 		t.Skip("started explicitly by scripts/browser-check.cjs")
 	}
 	m := testManager(t)
-	internal := httptest.NewServer(NewAPI(m).Internal())
-	defer internal.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	up, _ := makeUpstream(t)
-	d := NewDNS(unusedAddr(t), t.TempDir(), m.token, internal.URL)
+	d := NewDNS(unusedAddr(t), t.TempDir(), func(_ context.Context, q Query) { m.Observe(q) })
 	d.testMode = true
 	dnsConfig := DefaultConfig()
 	dnsConfig.Upstreams = []string{up}
@@ -35,15 +33,12 @@ func TestBrowserFixture(t *testing.T) {
 	}
 	defer d.Close(context.Background())
 	var syncBlocked atomic.Bool
-	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/internal/policy" && syncBlocked.Load() {
-			w.WriteHeader(503)
-			return
+	m.dns = &testDNSBackend{DNSBackend: d, apply: func(ctx context.Context, policy Policy) error {
+		if syncBlocked.Load() {
+			return fmt.Errorf("policy application blocked")
 		}
-		d.Handler().ServeHTTP(w, r)
-	}))
-	defer control.Close()
-	m.dnsURL = control.URL
+		return d.Apply(ctx, policy)
+	}}
 	c := m.Config()
 	c.Rules = DefaultConfig().Rules[:2]
 	c.FeedURL = "https://rules.example.com/table.json"
