@@ -532,6 +532,39 @@ func TestStatusAdvertisesConfiguredDNSAddress(t *testing.T) {
 	}
 }
 
+func TestStatusUsesLANRequestAddressWhenNoHostInterfaceIsVisible(t *testing.T) {
+	_, handler := testAPI(t)
+	t.Setenv("SERVER_IP", "127.0.0.1")
+	for _, tc := range []struct{ host, want string }{
+		{"192.168.50.10:8080", "192.168.50.10"},
+		{"10.0.0.8", "10.0.0.8"},
+		{"127.0.0.1:8080", ""},
+		{"localhost:8080", ""},
+		{"8.8.8.8:8080", ""},
+		{"[fd12::100]:8080", ""},
+		{"nas.example:8080", ""},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			t.Setenv("ADMIN_HOSTS", strings.Trim(strings.TrimSuffix(tc.host, ":8080"), "[]"))
+			r := httptest.NewRequest("GET", "/api/v1/status", nil)
+			r.Host, r.RemoteAddr = tc.host, "127.0.0.1:1234"
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			var status struct {
+				DNSAddress string      `json:"dns_address"`
+				Addresses  []string    `json:"service_addresses"`
+				Proxy      ProxyStatus `json:"proxy"`
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil {
+				t.Fatalf("status failed: %d %s", w.Code, w.Body.String())
+			}
+			if status.DNSAddress != tc.want || status.Proxy.Address != tc.want || tc.want == "" && len(status.Addresses) != 0 || tc.want != "" && (len(status.Addresses) != 1 || status.Addresses[0] != tc.want) {
+				t.Fatalf("incorrect advertised address: %s", w.Body.String())
+			}
+		})
+	}
+}
+
 func TestLANManagementOriginBackupAndRestore(t *testing.T) {
 	_, h := testAPI(t)
 	if r := call(h, "GET", "/api/v1/status", "", "", ""); r.Code != 200 {

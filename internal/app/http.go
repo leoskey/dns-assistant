@@ -374,6 +374,15 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	dnsConnected := time.Since(a.m.lastSync) < 25*time.Second
 	a.m.mu.RUnlock()
 	addresses := serviceAddresses()
+	if len(addresses) == 0 {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.To4() != nil && ip.IsPrivate() {
+			addresses = []string{ip.String()}
+		}
+	}
 	dnsAddress := ""
 	if len(addresses) > 0 {
 		dnsAddress = addresses[0]
