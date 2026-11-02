@@ -641,6 +641,7 @@ async function poll(fn, message, timeout = 15000) {
         "daily summary API retained",
         "sidebar footer shows the running backend application version",
         "proxy available at startup, reload, actual forwarded bytes and preserved after settings save",
+        "live route retains actual IP while latest selection changes; domain reconnect closes the stream",
         "one parameter card with both modes, proxy download speed from real streaming bytes, idle zero, unavailable/recovery and restart reset",
         "guide at right, keyboard and mobile stacking",
         "LAN address first item, shared multi-address selector, keyboard/mobile, clipboard fallback and empty addresses",
