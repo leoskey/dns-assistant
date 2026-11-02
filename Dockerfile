@@ -21,7 +21,7 @@ FROM build AS test
 RUN go test -race ./...
 
 FROM build AS windows-build
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X dns-assistant/internal/app.Revision=$VCS_REF" -o /out/dns-assistant.exe ./cmd/dns-assistant
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsgui -s -w -X dns-assistant/internal/app.Revision=$VCS_REF" -o /out/dns-assistant.exe ./cmd/dns-assistant
 
 FROM scratch AS windows-binary
 COPY --from=windows-build /out/dns-assistant.exe /dns-assistant.exe
@@ -33,4 +33,5 @@ COPY licenses /usr/share/doc/dns-assistant/licenses
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/dns-assistant/THIRD_PARTY_NOTICES.md
 USER 10001:10001
 WORKDIR /data
+ENV DATA_DIR=/data LISTEN_ADDR=:5353
 ENTRYPOINT ["dns-assistant"]

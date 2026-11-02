@@ -1,18 +1,14 @@
 name: dns-assistant
 services:
-  dns:
-    image: ${DNS_ASSISTANT_IMAGE:-ghcr.io/leoskey/dns-assistant:latest}
-    command: ["dns"]
-    environment:
-      SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
-      SERVER_IP: ${SERVER_IP:?请先设置服务主机固定局域网IP}
-      DATA_DIR: /data
-      MANAGER_INTERNAL_URL: http://controller:8081
+  app:
+    image: ghcr.io/leoskey/dns-assistant:latest
     ports:
-      - "${SERVER_IP:?请先设置服务主机固定局域网IP}:53:5353/udp"
-      - "${SERVER_IP:?请先设置服务主机固定局域网IP}:53:5353/tcp"
+      - "0.0.0.0:53:5353/udp"
+      - "0.0.0.0:53:5353/tcp"
+      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:8082:8082"
     volumes:
-      - dns-state:/data
+      - data:/data
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -22,43 +18,12 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: unless-stopped
-    stop_grace_period: 10s
-    mem_limit: 192m
-    healthcheck:
-      test: ["CMD", "dns-assistant", "health", "dns"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-  controller:
-    image: ${DNS_ASSISTANT_IMAGE:-ghcr.io/leoskey/dns-assistant:latest}
-    command: ["controller"]
-    environment:
-      SERVICE_TOKEN: ${SERVICE_TOKEN:?请先设置服务密钥}
-      SERVER_IP: ${SERVER_IP:?请先设置服务主机固定局域网IP}
-      DATA_DIR: /data
-      DNS_CONTROL_URL: http://dns:9090
-      ADMIN_HOSTS: ${ADMIN_HOSTS:-}
-    ports:
-      - "${SERVER_IP:?请先设置服务主机固定局域网IP}:8080:8080"
-      - "${SERVER_IP:?请先设置服务主机固定局域网IP}:8082:8082"
-    volumes:
-      - controller-state:/data
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    restart: unless-stopped
-    stop_grace_period: 10s
-    mem_limit: 320m
+    stop_grace_period: 20s
+    mem_limit: 512m
     healthcheck:
       test: ["CMD", "dns-assistant", "health"]
       interval: 30s
       timeout: 5s
       retries: 3
 volumes:
-  dns-state:
-  controller-state:
+  data:

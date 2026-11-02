@@ -12,7 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -24,16 +24,23 @@ func env(k, def string) string {
 	return def
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "autostart" {
+		args, err := loadStartupArguments()
+		if err != nil {
+			desktopError("无法读取开机启动配置", err)
+			return
+		}
+		os.Args = append(os.Args[:1], args...)
+	}
 	if len(os.Args) < 2 {
 		os.Args = append(os.Args, "standalone")
 	}
 	command := os.Args[1]
+	if command != "standalone" {
+		attachCommandConsole()
+	}
 	if command == "version" {
 		fmt.Printf("DNS Assistant v%s (%s)\n", app.Version(), app.Revision)
-		return
-	}
-	if command == "keygen" {
-		fmt.Println(app.NewKey())
 		return
 	}
 	if command == "config" {
@@ -56,109 +63,67 @@ func main() {
 		}
 		return
 	}
+	if command != "standalone" {
+		slog.Error("请直接启动程序，DNS、代理与管理已合并运行", "command", command)
+		os.Exit(2)
+	}
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
-	defaultDir, defaultAddr := "data/"+command, ":5353"
-	if command == "standalone" {
-		executable, e := os.Executable()
-		if e != nil {
-			slog.Error("无法确定程序目录", "error", e)
-			os.Exit(1)
-		}
-		defaultDir, defaultAddr = filepath.Join(filepath.Dir(executable), "data"), ":53"
+	executable, e := os.Executable()
+	if e != nil {
+		slog.Error("无法确定程序目录", "error", e)
+		os.Exit(1)
 	}
-	dir := flags.String("data", env("DATA_DIR", defaultDir), "数据目录")
-	addr := flags.String("listen", env("LISTEN_ADDR", defaultAddr), "DNS 监听地址")
-	var ip *string
-	if command == "standalone" {
-		ip = flags.String("ip", env("SERVER_IP", ""), "服务主机固定局域网 IPv4，用于接入指引")
-	}
+	dir := flags.String("data", env("DATA_DIR", standaloneDataDir(executable)), "数据目录")
+	addr := flags.String("listen", env("LISTEN_ADDR", ":53"), "DNS 监听地址")
+	ip := flags.String("ip", env("SERVER_IP", ""), "服务主机固定局域网 IPv4，用于接入指引")
+	browser := flags.Bool("open-window", runtime.GOOS == "windows", "启动后显示管理窗口（Windows）")
+	flags.BoolVar(browser, "open-browser", runtime.GOOS == "windows", "兼容旧参数；Windows 显示程序内管理窗口")
+	tray := flags.Bool("tray", runtime.GOOS == "windows", "显示 Windows 托盘菜单")
+	web := flags.String("web", env("WEB_ADDR", ":8080"), "管理页面监听地址")
+	proxy := flags.String("proxy", ":8082", "下载代理监听地址")
 	flags.Parse(os.Args[2:])
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if command == "standalone" {
-		if *ip != "" {
-			address := net.ParseIP(*ip)
-			if address == nil || address.To4() == nil || !address.IsGlobalUnicast() || address.IsLoopback() {
-				slog.Error("-ip 必须是服务主机固定局域网 IPv4")
-				os.Exit(2)
-			}
-			os.Setenv("SERVER_IP", *ip)
+	if !*tray {
+		release, err := enableServiceConsole(cancel)
+		if err != nil {
+			desktopError("无法打开控制台", err)
+			return
 		}
-		if e := runStandalone(ctx, *dir, *addr, env("WEB_ADDR", ":8080"), ":8082"); e != nil {
-			slog.Error("单机服务退出", "error", e)
-			os.Exit(1)
+		defer release()
+	}
+	unlock, err := lockStandalone(filepath.Dir(executable))
+	if err != nil {
+		if *tray && activateDesktop(executable, *browser) {
+			return
 		}
+		if *tray {
+			desktopError("程序已运行、正在更新或目录不可写，请检查右下角托盘", err)
+		} else {
+			slog.Error("程序已运行、正在更新或目录不可写", "error", err)
+		}
+		os.Exit(1)
+	}
+	defer unlock()
+	if *ip != "" {
+		address := net.ParseIP(*ip)
+		if address == nil || address.To4() == nil || !address.IsGlobalUnicast() || address.IsLoopback() {
+			slog.Error("-ip 必须是服务主机固定局域网 IPv4")
+			os.Exit(2)
+		}
+		os.Setenv("SERVER_IP", *ip)
+	}
+	absoluteDir, e := filepath.Abs(*dir)
+	if e != nil {
+		desktopError("无法读取数据目录", e)
 		return
 	}
-	token := env("SERVICE_TOKEN", "")
-	if f := os.Getenv("SERVICE_TOKEN_FILE"); f != "" {
-		b, e := os.ReadFile(f)
-		if e != nil {
-			slog.Error("服务密钥读取失败", "error", e)
-			os.Exit(1)
+	options := desktopOptions{Executable: executable, Data: absoluteDir, DNS: *addr, Web: *web, Proxy: *proxy, IP: *ip, OpenBrowser: *browser}
+	if e := runDesktop(ctx, options, *tray); e != nil {
+		slog.Error("单机服务退出", "error", e)
+		if *tray {
+			desktopError("单机服务退出", e)
 		}
-		token = strings.TrimSpace(string(b))
-	}
-	if len(token) < 32 || strings.Contains(token, "replace-with") {
-		slog.Error("请设置至少 32 字符的 SERVICE_TOKEN，使用 keygen 生成")
 		os.Exit(1)
-	}
-	if e := os.MkdirAll(filepath.Clean(*dir), 0700); e != nil {
-		slog.Error("数据目录不可写", "error", e)
-		os.Exit(1)
-	}
-	errs := make(chan error, 3)
-	switch command {
-	case "dns":
-		d := app.NewDNS(*addr, *dir, token, env("MANAGER_INTERNAL_URL", "http://127.0.0.1:8081"))
-		if e := d.Start(ctx); e != nil {
-			slog.Error("DNS 启动失败", "error", e)
-			os.Exit(1)
-		}
-		go func() { errs <- app.Serve(ctx, env("CONTROL_ADDR", ":9090"), d.Handler()) }()
-		slog.Info("DNS 已启动", "address", *addr)
-		select {
-		case <-ctx.Done():
-		case e := <-errs:
-			if e != nil {
-				slog.Error("服务退出", "error", e)
-			}
-			cancel()
-		}
-		closeCtx, c := context.WithTimeout(context.Background(), 5*time.Second)
-		defer c()
-		d.Close(closeCtx)
-	case "controller":
-		store, e := app.OpenStore(*dir)
-		if e != nil {
-			slog.Error("数据库启动失败", "error", e)
-			os.Exit(1)
-		}
-		defer store.Close()
-		m, e := app.NewManager(store, env("DNS_CONTROL_URL", "http://127.0.0.1:9090"), token)
-		if e != nil {
-			slog.Error("配置读取失败", "error", e)
-			os.Exit(1)
-		}
-		api := app.NewAPI(m)
-		managerDone := make(chan struct{})
-		go func() { m.Run(ctx); close(managerDone) }()
-		go func() { errs <- app.Serve(ctx, env("WEB_ADDR", ":8080"), api.Handler()) }()
-		go func() { errs <- app.Serve(ctx, env("INTERNAL_ADDR", ":8081"), api.Internal()) }()
-		go func() { errs <- app.ServeDownloadProxy(ctx, ":8082", m.DownloadProxy) }()
-		slog.Info("管理服务已启动", "address", env("WEB_ADDR", ":8080"))
-		select {
-		case <-ctx.Done():
-		case e := <-errs:
-			if e != nil {
-				slog.Error("服务退出", "error", e)
-			}
-			cancel()
-		}
-		<-managerDone
-
-	default:
-		slog.Error("未知子命令", "command", command)
-		os.Exit(2)
 	}
 }

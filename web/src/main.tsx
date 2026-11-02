@@ -18,6 +18,7 @@ import {
 } from "react-router-dom";
 import { ConsoleSetup } from "./ConsoleSetup";
 import { PlatformList } from "./PlatformList";
+import { ProxyConnections } from "./ProxyConnections";
 import {
   Activity,
   ArrowUpRight,
@@ -204,15 +205,7 @@ function PageRoutes() {
 }
 function Mark() {
   return (
-    <svg className="mark" viewBox="0 0 40 40" aria-hidden="true">
-      <path
-        d="M5 30V10h9c8 0 7 20 15 20h6M5 20h30M35 10v20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-      />
-    </svg>
+    <img className="mark" src="/logo.svg" alt="" aria-hidden="true" />
   );
 }
 function Title({
@@ -232,7 +225,7 @@ function Title({
   );
 }
 function Overview() {
-  const { status, message } = useApp();
+  const { status, message, refresh } = useApp();
   if (!status)
     return (
       <p className="loading" role="status">
@@ -286,8 +279,9 @@ function Overview() {
         proxyPort={status.proxy.port}
         message={message}
       />
+      <ProxyConnections status={status} refresh={refresh} message={message} />
       <div className="section-heading">
-        <h2>平台下载节点</h2>
+        <h2>平台样本测速</h2>
         <NavLink to="/platforms">
           查看全部节点
           <ArrowUpRight aria-hidden="true" />
@@ -309,7 +303,7 @@ function PlatformSummary({ platform }: { platform: string }) {
   const choices = status!.selections.filter(
     (s) => rules.some((r) => r.id === s.rule_id) && active(s),
   );
-  const choice = choices[0];
+  const choice = [...choices].sort((a, b) => b.speed_mbps - a.speed_mbps || a.domain.localeCompare(b.domain))[0];
   const task = status!.tasks.find(
     (t) => rules.some((r) => r.id === t.rule_id) && t.state === "running",
   );

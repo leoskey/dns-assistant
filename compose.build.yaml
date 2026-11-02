@@ -1,7 +1,4 @@
 services:
-  dns:
-    image: dns-assistant:local
-    build: .
-  controller:
+  app:
     image: dns-assistant:local
     build: .

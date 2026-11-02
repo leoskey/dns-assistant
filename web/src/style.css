@@ -215,10 +215,7 @@ aside {
   flex-shrink: 0;
 }
 .brand .mark {
-  background: var(--primary);
-  color: white;
-  border-radius: 8px;
-  padding: 8px;
+  display: block;
 }
 .brand small {
   display: block;
@@ -414,11 +411,6 @@ nav a svg {
 .route-middle .mark {
   width: 44px;
   height: 44px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--muted);
-  color: var(--foreground);
 }
 .board-footer {
   display: flex;
@@ -1006,7 +998,6 @@ details summary {
   .brand .mark {
     width: 30px;
     height: 30px;
-    padding: 6px;
   }
   .brand small {
     display: none;

@@ -75,6 +75,33 @@ func TestStandaloneLifecycle(t *testing.T) {
 				t.Fatalf("%s local AAAA response: %v %v", transport, answer, err)
 			}
 		}
+		response, err = client.Get("http://" + webAddr + "/healthz")
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatal("combined health check failed")
+		}
+		deadline = time.Now().Add(3 * time.Second)
+		for {
+			response, err = client.Get("http://" + webAddr + "/api/v1/queries")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var records struct {
+				Items []app.Query `json:"items"`
+			}
+			err = json.NewDecoder(response.Body).Decode(&records)
+			response.Body.Close()
+			if err == nil && len(records.Items) >= (attempt+1)*2 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("direct observations or persisted queries missing")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 		proxyResponse, proxyErr := client.Get("http://" + proxyAddr + "/")
 		if proxyErr != nil {
 			t.Fatal(proxyErr)
@@ -96,13 +123,34 @@ func TestStandaloneLifecycle(t *testing.T) {
 }
 
 func TestStandalonePortConflict(t *testing.T) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	if err := runStandalone(context.Background(), t.TempDir(), "127.0.0.1:0", listener.Addr().String(), freeAddress(t)); err == nil {
-		t.Fatal("occupied management port was accepted")
+	for _, occupied := range []string{"dns", "web", "proxy"} {
+		t.Run(occupied, func(t *testing.T) {
+			listener, err := net.Listen("tcp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			addresses := map[string]string{"dns": freeAddress(t), "web": freeAddress(t), "proxy": freeAddress(t)}
+			addresses[occupied] = listener.Addr().String()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := runStandalone(ctx, t.TempDir(), addresses["dns"], addresses["web"], addresses["proxy"]); err == nil {
+				t.Fatal("occupied port was accepted")
+			}
+			listener.Close()
+			for service, address := range addresses {
+				l, err := net.Listen("tcp4", address)
+				if err != nil {
+					t.Fatalf("%s listener leaked: %v", service, err)
+				}
+				l.Close()
+			}
+			packet, err := net.ListenPacket("udp4", addresses["dns"])
+			if err != nil {
+				t.Fatalf("DNS UDP listener leaked: %v", err)
+			}
+			packet.Close()
+		})
 	}
 }
 

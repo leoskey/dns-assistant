@@ -43,7 +43,6 @@ test("version synchronization and release checks use the real project files", (t
     "web/package.json",
     "web/package-lock.json",
     "README.md",
-    ".env.example",
     "website/index.html",
   ];
   for (const file of files) {
@@ -67,6 +66,11 @@ test("version synchronization and release checks use the real project files", (t
   writeFileSync(path.join(fixture, "internal/app/VERSION"), "12.34.56\n");
   let result = run("--write");
   assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    readFileSync(path.join(fixture, "README.md"), "utf8"),
+    readFileSync(path.join(root, "README.md"), "utf8"),
+    "version synchronization must leave the product README unchanged",
+  );
   assert.notEqual(run().status, 0, "missing release notes must fail");
   mkdirSync(path.join(fixture, "docs/releases"), { recursive: true });
   writeFileSync(
@@ -97,13 +101,6 @@ test("version synchronization and release checks use the real project files", (t
       "web/package-lock.json",
       '      "version": "12.34.56"',
       '      "version": "1.0.0"',
-    ],
-    ["README.md", "**v12.34.56**", "**v1.0.0**"],
-    [".env.example", "dns-assistant:12.34.56", "dns-assistant:latest"],
-    [
-      ".env.example",
-      "ghcr.nju.edu.cn/leoskey/dns-assistant:12.34.56",
-      "ghcr.nju.edu.cn/leoskey/dns-assistant:latest",
     ],
     ["website/index.html", ">v12.34.56</span", ">v1.0.0</span"],
     ["website/index.html", 'class="version"', 'class="old-version"'],

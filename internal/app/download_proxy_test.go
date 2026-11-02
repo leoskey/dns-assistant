@@ -193,7 +193,7 @@ func TestDownloadProxyHTTPRangeHeadersAndStreaming(t *testing.T) {
 		t.Fatal("transfer counters missing")
 	}
 	checkProxyTraffic(t, m)
-	m.DownloadProxy.forward.Transport.(*http.Transport).CloseIdleConnections()
+	m.DownloadProxy.transport.CloseIdleConnections()
 	origin.Close()
 	resp, err := client.Get("http://download.example/file")
 	if err != nil {
@@ -337,7 +337,7 @@ func TestDownloadProxyConfigPersistenceBackupAndStatus(t *testing.T) {
 	if err := a.m.store.Set("config", json.RawMessage(legacy)); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := NewManager(a.m.store, a.m.dnsURL, a.m.token)
+	restored, err := NewManager(a.m.store, a.m.dns)
 	if err != nil {
 		t.Fatal("legacy disabled setting blocked startup", err)
 	}

@@ -14,6 +14,8 @@
 - github.com/google/go-cmp v0.7.0：[LICENSE](licenses/go/github.com/google/go-cmp@v0.7.0/LICENSE)
 - github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3：[LICENSE](licenses/go/github.com/google/pprof@v0.0.0-20260802141513-ef3492d7dac3/LICENSE)
 - github.com/google/uuid v1.6.0：[LICENSE](licenses/go/github.com/google/uuid@v1.6.0/LICENSE)
+- github.com/wailsapp/go-webview2 v1.0.23：[LICENSE](licenses/go/github.com/wailsapp/go-webview2@v1.0.23/LICENSE)、[webviewloader/LICENSE](licenses/go/github.com/wailsapp/go-webview2@v1.0.23/webviewloader/LICENSE)
+- github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e：[LICENSE.md](licenses/go/github.com/jchv/go-winloader@v0.0.0-20210711035445-715c2860da7e/LICENSE.md)
 - github.com/hashicorp/golang-lru/v2 v2.0.7：[LICENSE](licenses/go/github.com/hashicorp/golang-lru/v2@v2.0.7/LICENSE)
 - github.com/mattn/go-isatty v0.0.24：[LICENSE](licenses/go/github.com/mattn/go-isatty@v0.0.24/LICENSE)
 - github.com/miekg/dns v1.1.72：[COPYRIGHT](licenses/go/github.com/miekg/dns@v1.1.72/COPYRIGHT)

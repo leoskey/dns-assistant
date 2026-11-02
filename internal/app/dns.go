@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/miekg/dns"
 	"net"
-	"net/http"
 
 	"os"
 	"path/filepath"
@@ -23,19 +21,22 @@ import (
 )
 
 type DNS struct {
-	mu                           sync.Mutex
-	policy                       atomic.Pointer[Policy]
-	proxy                        *proxy.Proxy
-	addr, dir, token, managerURL string
-	observed                     chan Query
-	rateMu                       sync.Mutex
-	counts                       map[string]int
-	minute                       int64
-	testMode                     bool
+	mu            sync.Mutex
+	policy        atomic.Pointer[Policy]
+	proxy         *proxy.Proxy
+	addr, dir     string
+	observer      func(context.Context, Query)
+	observeCancel context.CancelFunc
+	observeDone   chan struct{}
+	observed      chan Query
+	rateMu        sync.Mutex
+	counts        map[string]int
+	minute        int64
+	testMode      bool
 }
 
-func NewDNS(addr, dir, token, managerURL string) *DNS {
-	d := &DNS{addr: addr, dir: dir, token: token, managerURL: managerURL, observed: make(chan Query, 128), counts: map[string]int{}}
+func NewDNS(addr, dir string, observer func(context.Context, Query)) *DNS {
+	d := &DNS{addr: addr, dir: dir, observer: observer, observed: make(chan Query, 128), counts: map[string]int{}}
 	d.policy.Store(&Policy{Config: DefaultConfig(), Selections: []Selection{}})
 	return d
 }
@@ -78,7 +79,10 @@ func (d *DNS) Start(ctx context.Context) error {
 		return e
 	}
 	d.proxy = engine
-	go d.observeLoop(ctx)
+	observeCtx, cancel := context.WithCancel(ctx)
+	d.observeCancel = cancel
+	d.observeDone = make(chan struct{})
+	go func() { defer close(d.observeDone); d.observeLoop(observeCtx) }()
 	return nil
 }
 func (d *DNS) makeProxy(c Config) (*proxy.Proxy, error) {
@@ -104,11 +108,26 @@ func (d *DNS) makeProxy(c Config) (*proxy.Proxy, error) {
 }
 func (d *DNS) Close(ctx context.Context) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.proxy != nil {
-		return d.proxy.Shutdown(ctx)
+	if d.observeCancel != nil {
+		d.observeCancel()
 	}
-	return nil
+	engine, done := d.proxy, d.observeDone
+	d.proxy = nil
+	d.mu.Unlock()
+	var err error
+	if engine != nil {
+		err = engine.Shutdown(ctx)
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			if err == nil {
+				err = ctx.Err()
+			}
+		}
+	}
+	return err
 }
 func (d *DNS) handle(ctx context.Context, p *proxy.Proxy, q *proxy.DNSContext) error {
 	state := d.policy.Load()
@@ -278,6 +297,9 @@ func (d *DNS) Apply(ctx context.Context, p Policy) error {
 	normalizePolicy(&p)
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.proxy == nil {
+		return errors.New("DNS 未运行")
+	}
 	if e := d.validatePolicy(p); e != nil {
 		return e
 	}
@@ -327,95 +349,38 @@ func (d *DNS) Apply(ctx context.Context, p Policy) error {
 	d.policy.Store(&p)
 	return nil
 }
-func authorized(r *http.Request, token string) bool {
-	return len(token) >= 32 && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) == 1
+func (d *DNS) Check(ctx context.Context, domain string) (DNSCheck, error) {
+	if !DomainValid(domain) {
+		return DNSCheck{}, fmt.Errorf("域名格式无效")
+	}
+	msg := new(dns.Msg)
+	msg.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+	host, port, err := net.SplitHostPort(d.addr)
+	if err != nil {
+		return DNSCheck{}, err
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	response, duration, err := (&dns.Client{Timeout: 3 * time.Second}).ExchangeContext(ctx, msg, net.JoinHostPort(host, port))
+	if err != nil {
+		return DNSCheck{}, err
+	}
+	result := DNSCheck{Domain: domain, RCode: dns.RcodeToString[response.Rcode], Answers: []string{}, DurationMS: duration.Milliseconds()}
+	for _, rr := range response.Answer {
+		result.Answers = append(result.Answers, rr.String())
+	}
+	return result, nil
 }
-func (d *DNS) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		jsonOut(w, 200, map[string]any{"ok": true, "version": d.policy.Load().Version})
-	})
-	mux.HandleFunc("PUT /internal/policy", func(w http.ResponseWriter, r *http.Request) {
-		if !authorized(r, d.token) {
-			jsonError(w, 401, "服务认证失败")
-			return
-		}
-		var p Policy
-		if !decode(w, r, &p) {
-			return
-		}
-		if e := d.Apply(r.Context(), p); e != nil {
-			jsonError(w, 400, e.Error())
-			return
-		}
-		jsonOut(w, 200, map[string]any{"version": p.Version})
-	})
-	mux.HandleFunc("GET /internal/status", func(w http.ResponseWriter, r *http.Request) {
-		if !authorized(r, d.token) {
-			jsonError(w, 401, "服务认证失败")
-			return
-		}
-		jsonOut(w, 200, d.policy.Load())
-	})
-	mux.HandleFunc("POST /internal/check", func(w http.ResponseWriter, r *http.Request) {
-		if !authorized(r, d.token) {
-			jsonError(w, 401, "服务认证失败")
-			return
-		}
-		var v struct {
-			Domain string `json:"domain"`
-			Type   string `json:"type"`
-		}
-		if !decode(w, r, &v) {
-			return
-		}
-		if !DomainValid(v.Domain) {
-			jsonError(w, 400, "域名格式无效")
-			return
-		}
-		typ := dns.TypeA
-		if v.Type != "" && v.Type != "A" {
-			jsonError(w, 400, "接入检查只支持 IPv4 A 记录")
-			return
-		}
-		msg := new(dns.Msg)
-		msg.SetQuestion(dns.Fqdn(v.Domain), typ)
-		h, p, _ := net.SplitHostPort(d.addr)
-		if h == "" || h == "0.0.0.0" || h == "::" {
-			h = "127.0.0.1"
-		}
-		resp, dur, e := (&dns.Client{Timeout: 3 * time.Second}).ExchangeContext(r.Context(), msg, net.JoinHostPort(h, p))
-		if e != nil {
-			jsonError(w, 502, e.Error())
-			return
-		}
-		answers := []string{}
-		for _, rr := range resp.Answer {
-			answers = append(answers, rr.String())
-		}
-		jsonOut(w, 200, map[string]any{"domain": v.Domain, "rcode": dns.RcodeToString[resp.Rcode], "answers": answers, "duration_ms": dur.Milliseconds()})
-	})
-	return mux
-}
+
 func (d *DNS) observeLoop(ctx context.Context) {
-	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case q := <-d.observed:
-			if d.managerURL == "" {
-				continue
-			}
-			data, _ := json.Marshal(q)
-			req, e := http.NewRequestWithContext(ctx, "POST", d.managerURL+"/internal/observe", bytes.NewReader(data))
-			if e != nil {
-				continue
-			}
-			req.Header.Set("Authorization", "Bearer "+d.token)
-			resp, e := client.Do(req)
-			if e == nil {
-				resp.Body.Close()
+			if d.observer != nil {
+				d.observer(ctx, q)
 			}
 		}
 	}
