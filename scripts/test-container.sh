@@ -19,7 +19,10 @@ start
 for attempt in 1 2; do
     ready=false
     for retry in $(seq 1 20); do
-        if docker exec "$name" dns-assistant health; then ready=true; break; fi
+        if docker exec "$name" dns-assistant health && docker exec "$name" test -s /data/dns/policy.json; then
+            ready=true
+            break
+        fi
         sleep 1
     done
     "$ready"
