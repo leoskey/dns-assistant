@@ -143,6 +143,7 @@ func (m *Manager) setConfig(c Config, feed *FeedStatus, expected uint64) error {
 	next := map[string]Selection{}
 	schedule := m.scheduleLocked()
 	retained := map[string]bool{}
+	validUntil := time.Now().Add(time.Duration(c.PolicySeconds) * time.Second)
 	for _, r := range c.Rules {
 		retained[r.ID] = true
 		unchanged := false
@@ -169,6 +170,9 @@ func (m *Manager) setConfig(c Config, feed *FeedStatus, expected uint64) error {
 		}
 		if sameSample && r.Enabled {
 			if s, ok := m.selections[key(r.Domain, "A")]; ok {
+				if s.ValidUntil.After(validUntil) {
+					s.ValidUntil = validUntil
+				}
 				if !c.Enabled && !s.Fixed {
 					s.ValidUntil = time.Now()
 					s.Reason = "自动选优已暂停，使用默认解析"
