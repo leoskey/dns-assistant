@@ -84,7 +84,9 @@ go vet ./...
 go build ./cmd/dns-assistant
 ```
 
-浏览器检查脚本为 [scripts/browser-check.cjs](../scripts/browser-check.cjs)，配套夹具在 [browser_test.go](../internal/app/browser_test.go)。先执行 `go test -c -o ../work/app.test.exe ./internal/app`（其他系统可不使用 .exe 后缀），然后设置 APP_TEST_BINARY 为该文件的绝对路径、PLAYWRIGHT_MODULE 为可用 Playwright 模块路径、CHROME_PATH 为 Chromium/Chrome 可执行文件路径、BROWSER_OUTPUT_DIR 为证据目录，再运行 `node scripts/browser-check.cjs`。脚本只启动测试二进制；夹具接口不包含在生产程序中。
+GitHub Actions 的 `Test application` 会运行[管理后台浏览器测试](../scripts/browser-check.cjs)。失败时可下载 `management-ui-failure` 查看后端日志和已生成的截图，保留 7 天。
+
+本地复现时，在仓库根目录运行 `npm ci --prefix web`、`npm run build --prefix web` 和 `node web/node_modules/playwright/cli.js install --only-shell chromium`。执行 `go test -c -o ../work/app.test.exe ./internal/app` 编译[测试服务](../internal/app/browser_test.go)，将 `APP_TEST_BINARY` 设为该文件的绝对路径，再运行 `node scripts/browser-check.cjs`。可用 `BROWSER_OUTPUT_DIR` 指定证据目录，或用 `CHROME_PATH` 指定已安装的浏览器。
 
 ## amd64 部署验证结论
 
