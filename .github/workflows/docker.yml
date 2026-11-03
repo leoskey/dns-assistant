@@ -53,6 +53,22 @@ jobs:
         run: go test -race ./...
       - name: Vet Go
         run: go vet ./...
+      - name: Test management UI in Chromium
+        id: browser
+        env:
+          APP_TEST_BINARY: ${{ runner.temp }}/app.test
+          BROWSER_OUTPUT_DIR: ${{ runner.temp }}/browser-check
+        run: |
+          node web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
+          go test -c -o "$APP_TEST_BINARY" ./internal/app
+          node scripts/browser-check.cjs
+      - name: Upload browser failure evidence
+        if: failure() && steps.browser.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: management-ui-failure
+          path: ${{ runner.temp }}/browser-check
+          retention-days: 7
 
   containers:
     name: Container lifecycle (${{ matrix.arch }})

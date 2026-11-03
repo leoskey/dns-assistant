@@ -1,10 +1,11 @@
 // Opt-in end-to-end test against the actual Go/SQLite/DNS fixture.
-// Set APP_TEST_BINARY, PLAYWRIGHT_MODULE, CHROME_PATH and BROWSER_OUTPUT_DIR.
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+// APP_TEST_BINARY points to the compiled Go fixture.
 const { spawn } = require("node:child_process");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE ||
+  require.resolve("playwright", { paths: [path.resolve(__dirname, "../web")] }));
 const http = require("node:http");
 const binary = process.env.APP_TEST_BINARY;
 if (!binary) throw new Error("APP_TEST_BINARY must point to go test -c output");
@@ -35,7 +36,7 @@ async function poll(fn, message, timeout = 15000) {
   throw new Error(message);
 }
 (async () => {
-  let browser, base;
+  let browser, page, base;
   try {
     base = await new Promise((resolve, reject) => {
       const timer = setTimeout(
@@ -79,7 +80,7 @@ async function poll(fn, message, timeout = 15000) {
         ? { executablePath: process.env.CHROME_PATH }
         : {}),
     });
-    const page = await browser.newPage({
+    page = await browser.newPage({
       viewport: { width: 1280, height: 800 },
       reducedMotion: "reduce",
     });
@@ -661,6 +662,9 @@ async function poll(fn, message, timeout = 15000) {
       JSON.stringify(report, null, 2),
     );
     console.log(JSON.stringify(report));
+  } catch (error) {
+    if (page) await page.screenshot({ path: path.join(output, "failure.png"), timeout: 5000 }).catch(console.error);
+    throw error;
   } finally {
     if (browser) await browser.close();
     if (base) {
